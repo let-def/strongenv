@@ -57,7 +57,7 @@ module Prop = struct
     external world_inv' : ('w inv, _) p -> 'w w = "%ignore"*)
 end
 
-module D0 (T : sig type 'w t end) : sig
+module Lift0 (T : sig type 'w t end) : sig
   type t
   val pack_pos : 'w w T.t -> ('w Prop.pos, t) p
   val unpack_pos : ('w Prop.pos, t) p -> 'w w T.t
@@ -79,7 +79,7 @@ end = struct
   let unpack_inv p = let (T t) = drop p in t
 end
 
-module D1 (T : sig type ('w, 'a) t end) : sig
+module Lift1 (T : sig type ('w, 'a) t end) : sig
   type 'a t
   val pack_pos : ('w w, 'a) T.t -> ('w Prop.pos, 'a t) p
   val unpack_pos : ('w Prop.pos, 'a t) p -> ('w w, 'a) T.t

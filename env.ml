@@ -1,6 +1,9 @@
 open L
+(* Il faut commencer par lire L, c'est là qu'est le gros de l'encodage.
+   Dans ce module on l'utilise pour représenter des environnements avec des
+   garanties plus fortes. *)
 
-(* Untyped ident: a string and an integer *)
+(* Les identificateurs non-typés : juste une chaîne et un entier unique.  *)
 
 module Ident : sig
   type t
@@ -15,13 +18,25 @@ end = struct
   let stamp t = t.stamp
 end
 
+(* Les environnements non typés :
+   une liste associative entre un identificateur et un type ['a].  *)
 module Env : sig
   type +'a t
   val empty : 'a t
+
   val bind : string -> 'a -> 'a t -> 'a t * Ident.t
+  (* Lier un nom produit un nouvel identificateur. *)
+
   val get : Ident.t -> 'a t -> 'a
+  (* Récupérer un identificateur doit toujours réussir.
+     C'est une erreur run-time / exception de ne pas trouver de liaison. *)
+
   val update : Ident.t -> 'a -> 'a t -> 'a t
+  (* Mettre à jour un identificateur. *)
+
   val lookup : string -> 'a t -> ('a * Ident.t) option
+  (* Chercher un nom dans un environnement peut échouer.
+     Mais si ça réussit, on recupère aussi l'identificateur. *)
 end = struct
   type 'a t = (Ident.t * 'a) list
   let empty = []
@@ -37,38 +52,103 @@ end = struct
     | _ :: rest -> lookup k rest
 end
 
+(* Premier raffinement: environnement et identifiants indicés par un "monde".
+   Comme ça on peut enforcer le succès de "get".
+   Le monde peut s'interpréter comme un ensemble d'identificateurs liés dans un
+   environnement.  *)
 module EnvW : sig
+
   type -'w bindings
+  (* La propriété "liés un ensemble d'identificateurs".
+     Elle est négative : si un environnement lie un grand ensemble, il lie
+     aussi un de ses sous-ensembles (avec moins d'identificateurs). *)
+
   type +'w bound
+  (* La propriété "être lié dans un ensemble d'identificateurs".
+     Elle est positive : si un identifcateur est lié dans un environnement, il
+     est lié aussi un sur-ensemble. *)
 
   type (-'w, +'a) env = ('w bindings, 'a Env.t) p
+  (* Un environnement est un Env.t qui a la propriété de lier tout les bindings
+     de ['w]. *)
+
   type +'w ident = ('w bound, Ident.t) p
+  (* Un identificateur est un Ident.t qui a la propriété d'être lié dans ['w]. *)
+
+  type ('w1, 'w2) link = private 'w2 ident
+  (* Un lien entre deux mondes: il témoigne que rajouter l'identificateur dans
+     ['w1] aboutit à ['w2] (en gros w2 = w1 U {cet_ident}).
+     Il est possible que w2 = w1, si l'identificateur était déjà lié. Peu
+     importe, l'important est d'avoir la certitude qu'il sera lié dans [w2]
+     (attention, ce n'est pas toujours le comportement souhaité, mais pour un
+     typeur non-dépendant ça suffit :)).
+     C'est à la fois un identificateur qui est lié dans [w2] et une preuve que
+     [w2 >= w1]. *)
+
+  val ident : ('w1, 'w2) link -> 'w2 ident
+  (* Récupérer l'identificateur introduit par un lien. *)
+
+  val incl : ('w1, 'w2) link -> ('w1, 'w2) incl
+  (* Récupérer le témoins de l'inclusion des mondes liés. *)
 
   val empty : (o, _) env
+  (* L'environnement d'origine ne lie rien. On utilise [o] comme indice de ce
+     monde de départ. *)
 
   type (_, 'a) bind =
-      Bind : ('w1, 'w2) incl * ('w2, 'a) env * 'w2 ident -> ('w1, 'a) bind
-
+      Bind : ('w1, 'w2) link * ('w2, 'a) env -> ('w1, 'a) bind
   val bind : string -> 'a -> ('w, 'a) env -> ('w, 'a) bind
+  (* Une nouvelle liaison: un lien entre l'ancien et le nouvel environnement,
+     et cet environnement.
+     L'indice du nouvel environnement est une existentielle: c'est comme ça
+     qu'on produit un nouveau "nom" pour chaque extension d'un environnement.
+     E.g:
+         (* env : (#w0, value) Env.t *)
+       let Bind (link_a, env) = Env.bind "a" v1 env in
+         (* env : (#w1, value) Env.t
+            link_a : (#w0, #w1) Env.link *)
+       let Bind (link_b, env) = Env.bind "b" v2 env in
+         (* env : (#w2, value) Env.t
+            link_b : (#w1, #w2) Env.link *)
+       ...
+  *)
+
   val get : 'w ident -> ('w, 'a) env -> 'a
+  (* Récupérer le contenu d'un identificateur ne peut a priori plus échouer *)
+
   val update : 'w ident -> 'a -> ('w, 'a) env -> ('w, 'a) env
+  (* ... *)
+
   val lookup : string -> ('w, 'a) env -> ('a * 'w ident) option
+  (* Par rapport au lookup précédent: l'identificateur est bien typé dans le
+     monde courant. *)
+
 end = struct
+  (* bindings et bound: alias des propriétés négatives et positives *)
   type -'w bindings = 'w Prop.neg
   type +'w bound = 'w Prop.pos
 
   type (-'w, +'a) env = ('w bindings, 'a Env.t) p
   type +'w ident = ('w bound, Ident.t) p
+  type ('w1, 'w2) link = 'w2 ident
 
+  (* Le reste de l'implémentation _wrap_ Env non-typé :
+     - décorer les valeurs avec une propriété avant des les exposer
+       (Prop.assume_...)
+     - enlever la décoration quand on récupère une valeur (drop)
+  *)
   let empty : (o, _) env =
     Prop.assume_neg Env.empty
 
   type (_, 'a) bind =
-      Bind : ('w1, 'w2) incl * ('w2, 'a) env * 'w2 ident -> ('w1, 'a) bind
+      Bind : ('w1, 'w2) link * ('w2, 'a) env -> ('w1, 'a) bind
+
+  let ident x = x
+  let incl _ = unsafe_sub
 
   let bind k v t =
-    let env, ident = Env.bind k v (t : _ env :> _ Env.t) in
-    Bind (refl_sub, Prop.assume_neg env, Prop.assume_pos ident)
+    let env, ident = Env.bind k v (drop t) in
+    Bind (Prop.assume_pos ident, Prop.assume_neg env)
 
   let get id env = Env.get (drop id) (drop env)
 
@@ -81,15 +161,32 @@ end = struct
     | Some (v, id) -> Some (v, Prop.assume_pos id)
 end
 
+(* Le problème se complique : maintenant qu'on peut garantir qu'un
+   identificateur est dans un environnement, on peut vouloir parler de valeurs
+   bien formées dans cet environnement.
+
+   Par exemple avec :
+     val find_type : 'w ident -> ('w, type_decl) env -> type_decl
+   on a oublié que le type_decl retourné est bien formé dans 'w.
+   Une meilleure signature serait
+     val find_type : 'w ident -> ('w, type_decl) env -> 'w type_decl
+
+   C'est ce que l'on se propose de résoudre ici.
+
+   Une autre définition serait:
+     val find_type : 'w1 ident -> ('w1, type_decl) env ->
+     exists 'w2, 'w2 <= 'w1, 'w2 type_decl
+   Il existe un sous-ensemble de 'w1 dans lequel la déclaration est bien
+   formée. C'est un peu plus fin, cela dépend des propriétés qu'on recherche.
+*)
 module EnvWF : sig
   type -'w bindings
   type +'w bound
-  type +'w wf
 
+  (* Comme précédemment *)
   type (-'w, +'a) env = ('w bindings, 'a Env.t) p
   type +'w ident = ('w bound, Ident.t) p
   type ('w1, 'w2) fresh = private 'w2 ident
-  type (+'w, +'v) v = ('w wf, 'v) p
 
   val empty : (o, _) env
 
@@ -99,12 +196,25 @@ module EnvWF : sig
   val ident : (_, 'w) fresh -> 'w ident
   val incl : ('w1, 'w2) fresh -> ('w1, 'w2) incl
 
+  (* Bonne formation des valeurs *)
+  type +'w wf (* la propriété être "bien-formé" dans le monde 'w *)
+
+  (* Une valeur bien formé: une type quelconque avec la propriété wf *)
+  type (+'w, +'v) v = ('w wf, 'v) p
+
+  (* Assumer qu'une valeur est bien formée. *)
   val wf : 'a -> ('w, 'a) v
+
+  (* Bind, get, update, lookup... Recoivent maintenant des valeurs décorées
+     avec wf *)
   val bind : string -> ('w, 'a) v -> ('w, 'a) env -> ('w, 'a) bind
   val get : 'w ident -> ('w, 'a) env -> ('w, 'a) v
   val update : 'w ident -> ('w, 'a) v -> ('w, 'a) env -> ('w, 'a) env
   val lookup : string -> ('w, 'a) env -> (('w, 'a) v * 'w ident) option
 
+  (* Subtilité : pour pouvoir utiliser la prop wf avec un type paramétrique
+     ML normal, on crée un type [montype'] tels que ['w w montype] et [('w,
+     montype') v] soient isomorphes. *)
   module Lift (T : sig type 'w t end ) : sig
     type t
     val pack : 'w w T.t -> ('w, t) v
@@ -150,19 +260,26 @@ end = struct
     val pack : 'w w T.t -> ('w, t) v
     val unpack : ('w, t) v -> 'w w T.t
   end = struct
-    include D0(T)
+    include Lift0(T)
     let pack = pack_pos
     let unpack = unpack_pos
   end
 end
 
+(* Enfin, un exemple avec les types de System F *)
+
 module SystemF = struct
   open EnvWF
 
+  (* La difficulté est FORALL qui introduit un nouvel identificateur de
+     type.  *)
   type 'w typ =
     | VAR of 'w ident
     | ARR of 'w typ * 'w typ
-    | LAM : ('w1, 'w2) fresh * 'w2 typ -> 'w1 typ
+    | FORALL : ('w1, 'w2) fresh * 'w2 typ -> 'w1 typ
 
   module Typ = Lift(struct type 'w t = 'w typ end)
+  (* Un environnement de types peut maintenant être représenté par
+     [('w, Typ.t) env]. Il faudra utiliser Typ.pack et Typ.unpack pour
+     retrouver un ['w w typ]. *)
 end
