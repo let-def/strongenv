@@ -57,46 +57,51 @@ module Prop = struct
     external world_inv' : ('w inv, _) p -> 'w w = "%ignore"*)
 end
 
+type opaque = o w
+
 module Lift0 (T : sig type 'w t end) : sig
-  type t
-  val pack_pos : 'w w T.t -> ('w Prop.pos, t) p
-  val unpack_pos : ('w Prop.pos, t) p -> 'w w T.t
+  type t = opaque T.t
 
-  val pack_neg : 'w w T.t -> ('w Prop.neg, t) p
-  val unpack_neg : ('w Prop.neg, t) p -> 'w w T.t
+  val pack_pos : 'w w T.t -> ('w Prop.pos, t) p   (* = "%identity" *)
+  val unpack_pos : ('w Prop.pos, t) p -> 'w w T.t (* = "%identity" *)
 
-  val pack_inv : 'w w T.t -> ('w Prop.inv, t) p
-  val unpack_inv : ('w Prop.inv, t) p -> 'w w T.t
+  val pack_neg : 'w w T.t -> ('w Prop.neg, t) p   (* = "%identity" *)
+  val unpack_neg : ('w Prop.neg, t) p -> 'w w T.t (* = "%identity" *)
+
+  val pack_inv : 'w w T.t -> ('w Prop.inv, t) p   (* = "%identity" *)
+  val unpack_inv : ('w Prop.inv, t) p -> 'w w T.t (* = "%identity" *)
 end = struct
-  type t = T : 'w w T.t -> t
-  let pack_pos t = Prop.assume_pos (T t)
-  let unpack_pos p = let (T t) = drop p in t
+  type t = opaque T.t
 
-  let pack_neg t = Prop.assume_neg (T t)
-  let unpack_neg p = let (T t) = drop p in t
+  let pack_pos = Prop.assume_pos
+  let unpack_pos = drop
 
-  let pack_inv t = Prop.assume_inv (T t)
-  let unpack_inv p = let (T t) = drop p in t
+  let pack_neg = Prop.assume_neg
+  let unpack_neg = drop
+
+  let pack_inv = Prop.assume_inv
+  let unpack_inv = drop
 end
 
 module Lift1 (T : sig type ('w, 'a) t end) : sig
-  type 'a t
-  val pack_pos : ('w w, 'a) T.t -> ('w Prop.pos, 'a t) p
-  val unpack_pos : ('w Prop.pos, 'a t) p -> ('w w, 'a) T.t
+  type 'a t = (opaque, 'a) T.t
+  val pack_pos : ('w w, 'a) T.t -> ('w Prop.pos, 'a t) p   (* = "%identity" *)
+  val unpack_pos : ('w Prop.pos, 'a t) p -> ('w w, 'a) T.t (* = "%identity" *)
 
-  val pack_neg : ('w w, 'a) T.t -> ('w Prop.neg, 'a t) p
-  val unpack_neg : ('w Prop.neg, 'a t) p -> ('w w, 'a) T.t
+  val pack_neg : ('w w, 'a) T.t -> ('w Prop.neg, 'a t) p   (* = "%identity" *)
+  val unpack_neg : ('w Prop.neg, 'a t) p -> ('w w, 'a) T.t (* = "%identity" *)
 
-  val pack_inv : ('w w, 'a) T.t -> ('w Prop.inv, 'a t) p
-  val unpack_inv : ('w Prop.inv, 'a t) p -> ('w w, 'a) T.t
+  val pack_inv : ('w w, 'a) T.t -> ('w Prop.inv, 'a t) p   (* = "%identity" *)
+  val unpack_inv : ('w Prop.inv, 'a t) p -> ('w w, 'a) T.t (* = "%identity" *)
 end = struct
-  type 'a t = T : ('w w, 'a) T.t -> 'a t
-  let pack_pos t = Prop.assume_pos (T t)
-  let unpack_pos p = let (T t) = drop p in t
+  type 'a t = (opaque, 'a) T.t
 
-  let pack_neg t = Prop.assume_neg (T t)
-  let unpack_neg p = let (T t) = drop p in t
+  let pack_pos = Prop.assume_pos
+  let unpack_pos = drop
 
-  let pack_inv t = Prop.assume_inv (T t)
-  let unpack_inv p = let (T t) = drop p in t
+  let pack_neg = Prop.assume_neg
+  let unpack_neg = drop
+
+  let pack_inv = Prop.assume_inv
+  let unpack_inv = drop
 end

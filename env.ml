@@ -24,8 +24,11 @@ module Env : sig
   type +'a t
   val empty : 'a t
 
-  val bind : string -> 'a -> 'a t -> 'a t * Ident.t
-  (* Lier un nom produit un nouvel identificateur. *)
+  val bind : Ident.t -> 'a -> 'a t -> 'a t
+  (* Lier un nom produit un nouvel identificateur.
+     Si l'identificateur est déjà dans l'environnement, échoue avec l'exception
+     [Invalid_argument "Env.bind: identifier already bound"].
+  *)
 
   val get : Ident.t -> 'a t -> 'a
   (* Récupérer un identificateur doit toujours réussir.
@@ -40,7 +43,15 @@ module Env : sig
 end = struct
   type 'a t = (Ident.t * 'a) list
   let empty = []
-  let bind k v t =  let k = Ident.fresh k in ((k, v) :: t, k)
+
+  let rec mem k = function
+    | [] -> false
+    | (k', _) :: t -> Ident.stamp k = Ident.stamp k' || mem k t
+
+  let bind k v t =
+    if mem k t then invalid_arg "Env.bind: identifier already bound";
+    ((k, v) :: t)
+
   let rec get k = function
     | [] -> invalid_arg "Env.get: identifier not bound"
     | (k', v) :: _ when Ident.stamp k = Ident.stamp k' -> v
@@ -72,6 +83,10 @@ module EnvW : sig
   (* Un environnement est un Env.t qui a la propriété de lier tout les bindings
      de ['w]. *)
 
+  val empty : (o, _) env
+  (* L'environnement d'origine ne lie rien. On utilise [o] comme indice de ce
+     monde de départ. *)
+
   type +'w ident = ('w bound, Ident.t) p
   (* Un identificateur est un Ident.t qui a la propriété d'être lié dans ['w]. *)
 
@@ -91,27 +106,27 @@ module EnvW : sig
   val incl : ('w1, 'w2) link -> ('w1, 'w2) incl
   (* Récupérer le témoins de l'inclusion des mondes liés. *)
 
-  val empty : (o, _) env
-  (* L'environnement d'origine ne lie rien. On utilise [o] comme indice de ce
-     monde de départ. *)
-
-  type (_, 'a) bind =
-      Bind : ('w1, 'w2) link * ('w2, 'a) env -> ('w1, 'a) bind
-  val bind : string -> 'a -> ('w, 'a) env -> ('w, 'a) bind
-  (* Une nouvelle liaison: un lien entre l'ancien et le nouvel environnement,
-     et cet environnement.
-     L'indice du nouvel environnement est une existentielle: c'est comme ça
+  type 'w fresh = Fresh : ('w1, 'w2) link -> 'w1 fresh
+  val fresh : string -> 'w fresh
+  (* Création d'un nouveau lien: il connecte un monde existant et un nouveau
+     monde.  L'indice du nouveau monde est une existentielle. C'est comme ça
      qu'on produit un nouveau "nom" pour chaque extension d'un environnement.
      E.g:
          (* env : (#w0, value) Env.t *)
-       let Bind (link_a, env) = Env.bind "a" v1 env in
+       let Fresh link_a = Env.fresh "a" in
+       let env = Env.bind (Env.ident link_a) v1 env in
          (* env : (#w1, value) Env.t
             link_a : (#w0, #w1) Env.link *)
-       let Bind (link_b, env) = Env.bind "b" v2 env in
+       let Fresh link_b = Env.fresh "a" in
+       let env = Env.bind (Env.ident link_b) v2 env in
          (* env : (#w2, value) Env.t
             link_b : (#w1, #w2) Env.link *)
        ...
   *)
+
+  val bind : ('w1, 'w2) link -> 'a -> ('w1, 'a) env -> ('w2, 'a) env
+  (* Introduit une nouvelle liaison dans l'environnement.
+     Introduire deux fois la même liaison est une erreur à l'exécution.  *)
 
   val get : 'w ident -> ('w, 'a) env -> 'a
   (* Récupérer le contenu d'un identificateur ne peut a priori plus échouer *)
@@ -140,15 +155,15 @@ end = struct
   let empty : (o, _) env =
     Prop.assume_neg Env.empty
 
-  type (_, 'a) bind =
-      Bind : ('w1, 'w2) link * ('w2, 'a) env -> ('w1, 'a) bind
-
   let ident x = x
   let incl _ = unsafe_sub
 
+  type 'w fresh = Fresh : ('w1, 'w2) link -> 'w1 fresh
+  let fresh name = Fresh (Prop.assume_pos (Ident.fresh name))
+
   let bind k v t =
-    let env, ident = Env.bind k v (drop t) in
-    Bind (Prop.assume_pos ident, Prop.assume_neg env)
+    let env = Env.bind (drop k) v (drop t) in
+    Prop.assume_neg env
 
   let get id env = Env.get (drop id) (drop env)
 
@@ -185,16 +200,16 @@ module EnvWF : sig
 
   (* Comme précédemment *)
   type (-'w, +'a) env = ('w bindings, 'a Env.t) p
-  type +'w ident = ('w bound, Ident.t) p
-  type ('w1, 'w2) fresh = private 'w2 ident
-
   val empty : (o, _) env
 
-  type (_, 'a) bind =
-      Bind : ('w1, 'w2) fresh * ('w2, 'a) env -> ('w1, 'a) bind
+  type +'w ident = ('w bound, Ident.t) p
 
-  val ident : (_, 'w) fresh -> 'w ident
-  val incl : ('w1, 'w2) fresh -> ('w1, 'w2) incl
+  type ('w1, 'w2) link = private 'w2 ident
+  val ident : (_, 'w) link -> 'w ident
+  val incl : ('w1, 'w2) link -> ('w1, 'w2) incl
+
+  type 'w fresh = Fresh : ('w1, 'w2) link -> 'w1 fresh
+  val fresh : string -> 'w fresh
 
   (* Bonne formation des valeurs *)
   type +'w wf (* la propriété être "bien-formé" dans le monde 'w *)
@@ -207,7 +222,7 @@ module EnvWF : sig
 
   (* Bind, get, update, lookup... Recoivent maintenant des valeurs décorées
      avec wf *)
-  val bind : string -> ('w, 'a) v -> ('w, 'a) env -> ('w, 'a) bind
+  val bind : ('w1, 'w2) link -> ('w, 'a) v -> ('w1, 'a) env -> ('w2, 'a) env
   val get : 'w ident -> ('w, 'a) env -> ('w, 'a) v
   val update : 'w ident -> ('w, 'a) v -> ('w, 'a) env -> ('w, 'a) env
   val lookup : string -> ('w, 'a) env -> (('w, 'a) v * 'w ident) option
@@ -226,24 +241,23 @@ end = struct
   type +'w wf = 'w Prop.pos
 
   type (-'w, +'a) env = ('w bindings, 'a Env.t) p
-  type +'w ident = ('w bound, Ident.t) p
-  type ('w1, 'w2) fresh = 'w2 ident
-  type (+'w, +'v) v = ('w wf, 'v) p
 
   let empty : (o, _) env =
     Prop.assume_neg Env.empty
 
-  type (_, 'a) bind =
-      Bind : ('w1, 'w2) fresh * ('w2, 'a) env -> ('w1, 'a) bind
-
-  let wf v = Prop.assume_pos v
-
+  type +'w ident = ('w bound, Ident.t) p
   let ident x = x
   let incl _ = unsafe_sub
 
+  type ('w1, 'w2) link = 'w2 ident
+  type 'w fresh = Fresh : ('w1, 'w2) link -> 'w1 fresh
+  let fresh name = Fresh (Prop.assume_pos (Ident.fresh name))
+
+  type (+'w, +'v) v = ('w wf, 'v) p
+  let wf v = Prop.assume_pos v
+
   let bind k v t =
-    let env, ident = Env.bind k (drop v) (drop t) in
-    Bind (Prop.assume_pos ident, Prop.assume_neg env)
+    Prop.assume_neg (Env.bind (drop k) (drop v) (drop t))
 
   let get id env = wf (Env.get (drop id) (drop env))
 
@@ -276,7 +290,7 @@ module SystemF = struct
   type 'w typ =
     | VAR of 'w ident
     | ARR of 'w typ * 'w typ
-    | FORALL : ('w1, 'w2) fresh * 'w2 typ -> 'w1 typ
+    | FORALL : ('w1, 'w2) link * 'w2 typ -> 'w1 typ
 
   module Typ = Lift(struct type 'w t = 'w typ end)
   (* Un environnement de types peut maintenant être représenté par
