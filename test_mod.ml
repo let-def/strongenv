@@ -57,30 +57,32 @@ end
 and Scope : PREENV with type 'a namespace = 'a Namespace.t = Make(Namespace)
 
 module Env = Scope.Make_env (struct
+    open Scope
+
     type ns_module = Namespace.Mod_.p
     let modules : ns_module Namespace.t = Namespace.Mod_
-    let scope _w _mod = Scope.Branch Scope.End
+    let scope _w _mod = Branch End
 
     let rec transport_typ
-      : type v w. (v, w) Scope.transport -> v Syntax.typ -> w Syntax.typ
+      : type v w. (v, w) Transport.t -> v Syntax.typ -> w Syntax.typ
       = fun tp -> function
-      | Ty_var path -> Ty_var (tp.path path)
+      | Ty_var path -> Ty_var (Transport.path tp path)
       | Ty_arr (t1, t2) -> Ty_arr (transport_typ tp t1, transport_typ tp t2)
       | Ty_forall (binder, typ) ->
-        let Scope.Binder (tp', binder') = tp.binder binder in
+        let Transport.Binder (tp', binder') = Transport.binder tp binder in
         Ty_forall (binder', transport_typ tp' typ)
 
     let rec transport_term
-      : type v w. (v, w) Scope.transport -> v Syntax.term -> w Syntax.term
+      : type v w. (v, w) Transport.t -> v Syntax.term -> w Syntax.term
       = fun tp -> function
-      | Te_var path -> Te_var (tp.path path)
+      | Te_var path -> Te_var (Transport.path tp path)
       | Te_lam (binder, term) ->
-        let Scope.Binder (tp', binder') = tp.binder binder in
+        let Transport.Binder (tp', binder') = Transport.binder tp binder in
         Te_lam (binder', transport_term tp' term)
       | Te_app (te1, te2) ->
         Te_app (transport_term tp te1, transport_term tp te2)
       | Te_LAM (binder, term) ->
-        let Scope.Binder (tp', binder') = tp.binder binder in
+        let Transport.Binder (tp', binder') = Transport.binder tp binder in
         Te_LAM (binder', transport_term tp' term)
       | Te_APP (te1, ty1) ->
         Te_APP (transport_term tp te1, transport_typ tp ty1)

@@ -85,16 +85,15 @@ module type SCOPE = sig
 
   type 'w branch = Branch : ('w, 'a) scope -> 'w branch [@@unboxed]
 
-  type ('v1, 'w1) transport = {
-    path : 'a. ('v1, 'a) path -> ('w1, 'a) path;
-    binder : 'v2 'ns . ('v1, 'v2, 'ns) binder ->
-                       ('v1, 'w1, 'v2, 'ns) transport_binder;
-  }
-
-  and ('v1, 'w1, 'v2, 'ns) transport_binder =
-      Binder : ('v2, 'w2) transport * ('w1, 'w2, 'ns) binder
-        -> ('v1, 'w1, 'v2, 'ns) transport_binder
-
+  module Transport : sig
+    type ('v, 'w) t
+    type ('v1, 'w1, 'v2, 'ns) t_binder =
+        Binder : ('v2, 'w2) t * ('w1, 'w2, 'ns) binder
+          -> ('v1, 'w1, 'v2, 'ns) t_binder
+    val path : ('v, 'w) t -> ('v, 'a) path -> ('w, 'a) path
+    val binder : ('v1, 'w1) t -> ('v1, 'v2, 'ns) binder ->
+      ('v1, 'w1, 'v2, 'ns) t_binder
+  end
 end
 
 module type NESTING = sig
@@ -141,7 +140,7 @@ module type PREENV = sig
   module Make_env
       (Nesting : NESTING with type 'a namespace := 'a namespace
                           and type ('w, 'a) path := ('w, 'a) path
-                          and type ('v, 'w) transport := ('v, 'w) transport
+                          and type ('v, 'w) transport := ('v, 'w) Transport.t
                           and type 'w branch := 'w branch) :
     ENV with type 'a namespace := 'a namespace
          and type ('w1, 'w2) scope := ('w1, 'w2) scope
