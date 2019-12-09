@@ -1,3 +1,4 @@
 (library 
  (name strongenv)
- (wrapped false))
+ (wrapped false)
+ (libraries grenier.baltree))

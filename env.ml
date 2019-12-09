@@ -186,9 +186,9 @@ module type ENV = sig
   (*val scope : 'w t -> (W.o, 'w2) Scope.t .. should include Open*)
 end
 
-module Make_scope (Namespace : NAMESPACE) :
+module Make (Namespace : NAMESPACE) :
 sig
-  module Scope : SCOPE with module Namespace = Namespace
+  module Scope : SCOPE with module Namespace := Namespace
 
   module Make_env
       (Nesting : NESTING with module Namespace := Namespace
