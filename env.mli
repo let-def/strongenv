@@ -41,6 +41,8 @@ module W : sig
   module Indexed0 (P : sig type 'w t end) : INDEXED with type 'w t = 'w P.t
 end
 
+type ('w, 'a) v = ('w, 'a) W.v
+
 (* Names and qualified names *)
 
 type name = string
@@ -50,8 +52,10 @@ module Path : sig
   val bind : ('a -> 'b t) -> 'a t -> 'b t
 end
 
+module type NAMESPACE = ORDERED
+
 module type IDENT = sig
-  module Namespace : ORDERED
+  module Namespace : NAMESPACE
   type (+'w, 'a) t = private
     { namespace : 'a Namespace.t; name : name; stamp : 'w W.lt }
   val compare : ('w, 'a) t -> ('w, 'b) t -> ('a, 'b) order
@@ -61,7 +65,7 @@ end
 
 module type SCOPE = sig
   (* Names *)
-  module Namespace : ORDERED
+  module Namespace : NAMESPACE
   type 'a namespace = 'a Namespace.t
   module Ident : IDENT with module Namespace := Namespace
   type ('w, 'a) ident = ('w, 'a) Ident.t
@@ -76,33 +80,63 @@ module type SCOPE = sig
 
   (* Bindings *)
   type ('w1, 'w2) t =
-    | Bind : ('w1, 'w2) t * ('w2, 'w3, 'a) binder * 'a -> ('w1, 'w3) t
-    | Update : ('w1, 'w2) t * ('w2, 'a) ident * 'a -> ('w1, 'w2) t
+    | Bind : ('w1, 'w2) t * ('w2, 'w3, 'a) binder * ('w2, 'a) v -> ('w1, 'w3) t
+    | Update : ('w1, 'w2) t * ('w2, 'a) ident * ('w2, 'a) v -> ('w1, 'w2) t
     | End : ('w, 'w) t
 
   type 'w branch = Branch : ('w, 'a) t -> 'w branch [@@unboxed]
 end
 
-module Make_scope (Namespace : ORDERED) :
-  SCOPE with module Namespace = Namespace
+module type NESTING = sig
+  module Namespace : NAMESPACE
+  module Scope : SCOPE with module Namespace := Namespace
 
-(*module type SCOPED = sig
-  module Scope : SCOPE
-  val scope :
-    'a Scope.namespace -> 'w W.t -> ('w, 'a) W.v -> 'w Scope.branch option
-  type ('w1, 'w2) path_transport = {
-    transport : 'a. ('w1, 'a) Scope.path -> ('w2, 'a) Scope.path;
-  }
+  type namespace
+  val namespace : namespace Namespace.t
+  val scope : 'w W.t -> ('w, namespace) W.v -> 'w Scope.branch
+
+  type ('w1, 'w2) path_transport =
+    { transport : 'a. ('w1, 'a) Scope.path -> ('w2, 'a) Scope.path }
+
   val transport :
     ('w1, 'w2) path_transport ->
     'a Scope.namespace -> ('w1, 'a) W.v -> ('w2, 'a) W.v
 end
 
 module type ENV = sig
+  module Namespace : NAMESPACE
   module Scope : SCOPE
-  type ('w1, 'w2) env
-  val empty : (W.o, W.o) env
-  type ('w1, 'w2) extension =
-      Extend : ('w2, 'w3) sub * ('w1, 'w3) env -> ('w1, 'w2) extension
-  val extend : ('w1, 'w2) env -> ('w2, 'w3) Scope.t -> ('w1, 'w3) env
-end*)
+    with module Namespace := Namespace
+  module Nesting : NESTING
+    with module Namespace := Namespace
+    with module Scope := Scope
+  open Scope
+
+  (* To type fork/merge: type ('w1, 'w2) t *)
+  type 'w t
+  val empty : W.o t
+  val extend : 'w1 t -> ('w1, 'w2) Scope.t -> 'w2 t
+
+  val lookup : 'w t -> 'a Namespace.t -> name Path.t -> ('w, 'a) path option
+  val find : 'w t -> 'a Namespace.t -> name Path.t -> (('w, 'a) path * ('w, 'a) v) option
+  val get : 'w t -> 'a Namespace.t -> ('w, 'a) path -> ('w, 'a) v
+
+  type 'w fresh =
+      Fresh : ('w1, 'w2, 'a) binder * ('w1, 'a) v * 'w2 t -> 'w1 fresh
+  val bind : 'w1 t -> 'a namespace -> name -> ('w1, 'a) v -> 'w1 fresh
+  val update : 'w t -> ('w, 'a) Ident.t -> ('w, 'a) v -> 'w t
+  (*val open_ : 'w t -> ('w, Nesting.namespace) path -> ('w1, 'w2) t*)
+  (*val scope : 'w t -> (W.o, 'w2) Scope.t .. should include Open*)
+end
+
+module Make_scope (Namespace : NAMESPACE) :
+sig
+  module Scope : SCOPE with module Namespace = Namespace
+
+  module Make_env
+      (Nesting : NESTING with module Namespace := Namespace
+                          and module Scope := Scope) :
+    ENV with module Namespace := Namespace
+         and module Scope := Scope
+         and module Nesting := Nesting
+end
