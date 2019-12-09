@@ -143,11 +143,11 @@ module type PREENV = sig
                           and type ('w, 'a) path := ('w, 'a) path
                           and type ('v, 'w) transport := ('v, 'w) transport
                           and type 'w branch := 'w branch) :
-    ENV with type 'a namespace = 'a namespace
-         and type ('w1, 'w2) scope = ('w1, 'w2) scope
-         and type ('w, 'a) ident = ('w, 'a) ident
-         and type ('w, 'a) path = ('w, 'a) path
-         and type ('w1, 'w2, 'a) binder = ('w1, 'w2, 'a) binder
+    ENV with type 'a namespace := 'a namespace
+         and type ('w1, 'w2) scope := ('w1, 'w2) scope
+         and type ('w, 'a) ident := ('w, 'a) ident
+         and type ('w, 'a) path := ('w, 'a) path
+         and type ('w1, 'w2, 'a) binder := ('w1, 'w2, 'a) binder
 end
 
 module Make (Namespace : NAMESPACE) :

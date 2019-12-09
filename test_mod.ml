@@ -61,10 +61,8 @@ module Env = Scope.Make_env (struct
     let modules : ns_module Namespace.t = Namespace.Mod_
     let scope _w _mod = Scope.Branch Scope.End
 
-    type ('v, 'w) transport = ('v, 'w) Scope.transport
-
     let rec transport_typ
-      : type v w. (v, w) transport -> v Syntax.typ -> w Syntax.typ
+      : type v w. (v, w) Scope.transport -> v Syntax.typ -> w Syntax.typ
       = fun tp -> function
       | Ty_var path -> Ty_var (tp.path path)
       | Ty_arr (t1, t2) -> Ty_arr (transport_typ tp t1, transport_typ tp t2)
@@ -73,7 +71,7 @@ module Env = Scope.Make_env (struct
         Ty_forall (binder', transport_typ tp' typ)
 
     let rec transport_term
-      : type v w. (v, w) transport -> v Syntax.term -> w Syntax.term
+      : type v w. (v, w) Scope.transport -> v Syntax.term -> w Syntax.term
       = fun tp -> function
       | Te_var path -> Te_var (tp.path path)
       | Te_lam (binder, term) ->
