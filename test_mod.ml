@@ -45,12 +45,12 @@ end = struct
 
   let compare (type a b) (a : a t) (b : b t) : (a, b) order =
     match a, b with
-    | Type , Type -> Eq
-    | Term , Term -> Eq
-    | Mod_ , Mod_ -> Eq
-    | Type , (Term | Mod_) -> Lt
-    | Term , Mod_ -> Lt
-    | Term , Type -> Gt
+    | Type, Type -> Eq
+    | Term, Term -> Eq
+    | Mod_, Mod_ -> Eq
+    | Type, (Term | Mod_) -> Lt
+    | Term, Mod_ -> Lt
+    | Term, Type -> Gt
     | Mod_,  (Type | Term) -> Gt
 end
 
@@ -59,9 +59,7 @@ and Scope : PREENV with type 'a namespace = 'a Namespace.t = Make(Namespace)
 module Env = Scope.Make_env (struct
     open Scope
 
-    type ns_module = Namespace.Mod_.p
-    let modules : ns_module Namespace.t = Namespace.Mod_
-    let scope _w _mod = Branch End
+    let project _w _ns _v = Branch End
 
     let rec transport_typ
       : type v w. (v, w) Transport.t -> v Syntax.typ -> w Syntax.typ

@@ -12,8 +12,10 @@ val trans_sub : ('a, 'b) sub -> ('b, 'c) sub -> ('a, 'c) sub
 
 (* Typed-indexed ordering *)
 type ('a, 'b) order = Lt | Eq : ('a, 'a) order | Gt
-module type ORDERED =
-  sig type 'a t val compare : 'a t -> 'b t -> ('a, 'b) order end
+module type ORDERED = sig
+  type 'a t
+  val compare : 'a t -> 'b t -> ('a, 'b) order
+end
 
 (* Worlds *)
 type 'a world
@@ -47,28 +49,30 @@ type ('w, 'a) v = ('w, 'a) W.v
 
 type name = string
 
-module Path : sig
-  type 'a t = Ident of 'a | Dot of 'a t * name
-  val bind : ('a -> 'b t) -> 'a t -> 'b t
-end
-
-module type NAMESPACE = ORDERED
-
-module type IDENT = sig
-  type 'a namespace
-  type (+'w, 'a) t = private
-    { namespace : 'a namespace; name : name; stamp : 'w W.lt }
-  val compare : ('w, 'a) t -> ('w, 'b) t -> ('a, 'b) order
-  val compare_name :
-    'a namespace -> string -> ('c, 'b) t -> ('a, 'b) order
-end
-
 module type SCOPE = sig
   (* Names *)
   type 'a namespace
-  module Ident : IDENT with type 'a namespace := 'a namespace
+
+  module Ident : sig
+    type (+'w, 'a) t = private
+      { namespace : 'a namespace; name : name; stamp : 'w W.lt }
+    val compare : ('w, 'a) t -> ('w, 'b) t -> ('a, 'b) order
+    val compare_name :
+      'a namespace -> string -> ('c, 'b) t -> ('a, 'b) order
+  end
   type ('w, 'a) ident = ('w, 'a) Ident.t
-  type ('w, 'a) path = private ('w, 'a) ident Path.t
+
+  module Path : sig
+    type 'a pre =
+      | Pre_ident : 'a namespace * name -> 'a pre
+      | Pre_dot : _ pre * 'a namespace * name -> 'a pre
+    val ident : 'a namespace -> name -> 'a pre
+    val dot : 'a pre -> 'a namespace -> name -> 'a pre
+    type (+'w, 'a) t = private
+      | Ident : ('w, 'a) ident -> ('w, 'a) t
+      | Dot : _ t * 'a namespace * name -> ('w, 'a) t
+  end
+  type ('w, 'a) path = ('w, 'a) Path.t
 
   (* Binding *)
   type ('w1, 'w2, 'a) binder = private
@@ -102,9 +106,7 @@ module type NESTING = sig
   type ('v, 'w) transport
   type 'w branch
 
-  type ns_module
-  val modules : ns_module namespace
-  val scope : 'w W.t -> ('w, ns_module) W.v -> 'w branch
+  val project : 'w W.t -> 'a namespace -> ('w, 'a) W.v -> 'w branch
 
   val transport :
     ('v, 'w) transport -> 'v world -> 'w world ->
@@ -114,8 +116,9 @@ end
 module type ENV = sig
   type 'a namespace
   type ('w1, 'w2) scope
-  type ('w, 'a) ident
-  type ('w, 'a) path
+  type (+'w, 'a) ident
+  type 'a pre_path
+  type (+'w, 'a) path
   type ('w1, 'w2, 'a) binder
 
   (* To type fork/merge: type ('w1, 'w2) t *)
@@ -123,8 +126,8 @@ module type ENV = sig
   val empty : W.o t
   val extend : 'w1 t -> ('w1, 'w2) scope -> 'w2 t
 
-  val lookup : 'w t -> 'a namespace -> name Path.t -> ('w, 'a) path option
-  val find : 'w t -> 'a namespace -> name Path.t -> (('w, 'a) path * ('w, 'a) v) option
+  val lookup : 'w t -> 'a pre_path -> ('w, 'a) path option
+  val find : 'w t -> 'a pre_path -> (('w, 'a) path * ('w, 'a) v) option
   val get : 'w t -> 'a namespace -> ('w, 'a) path -> ('w, 'a) v
 
   type 'w fresh = Fresh : ('w1, 'w2, 'a) binder * 'w2 t -> 'w1 fresh
@@ -145,9 +148,10 @@ module type PREENV = sig
     ENV with type 'a namespace := 'a namespace
          and type ('w1, 'w2) scope := ('w1, 'w2) scope
          and type ('w, 'a) ident := ('w, 'a) ident
+         and type 'a pre_path := 'a Path.pre
          and type ('w, 'a) path := ('w, 'a) path
          and type ('w1, 'w2, 'a) binder := ('w1, 'w2, 'a) binder
 end
 
-module Make (Namespace : NAMESPACE) :
+module Make (Namespace : ORDERED) :
   PREENV with type 'a namespace = 'a Namespace.t

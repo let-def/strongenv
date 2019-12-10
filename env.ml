@@ -100,32 +100,30 @@ type ('w, 'a) v = ('w, 'a) W.v
 (* Specification of identifiers *)
 type name = string
 
-module Path = struct
-  type 'a t =
-    | Ident of 'a
-    | Dot of 'a t * name
-  let rec bind f = function
-    | Ident id -> f id
-    | Dot (p, n) -> Dot (bind f p, n)
-end
-
-module type NAMESPACE = ORDERED
-
-module type IDENT = sig
-  type 'a namespace
-  type (+'w, 'a) t = private
-    { namespace : 'a namespace; name : name; stamp : 'w W.lt }
-  val compare : ('w, 'a) t -> ('w, 'b) t -> ('a, 'b) order
-  val compare_name :
-    'a namespace -> string -> ('c, 'b) t -> ('a, 'b) order
-end
-
 module type SCOPE = sig
   (* Names *)
   type 'a namespace
-  module Ident : IDENT with type 'a namespace := 'a namespace
+
+  module Ident : sig
+    type (+'w, 'a) t = private
+      { namespace : 'a namespace; name : name; stamp : 'w W.lt }
+    val compare : ('w, 'a) t -> ('w, 'b) t -> ('a, 'b) order
+    val compare_name :
+      'a namespace -> string -> ('c, 'b) t -> ('a, 'b) order
+  end
   type ('w, 'a) ident = ('w, 'a) Ident.t
-  type ('w, 'a) path = private ('w, 'a) ident Path.t
+
+  module Path : sig
+    type 'a pre =
+      | Pre_ident : 'a namespace * name -> 'a pre
+      | Pre_dot : _ pre * 'a namespace * name -> 'a pre
+    val ident : 'a namespace -> name -> 'a pre
+    val dot : 'a pre -> 'a namespace -> name -> 'a pre
+    type (+'w, 'a) t = private
+      | Ident : ('w, 'a) ident -> ('w, 'a) t
+      | Dot : _ t * 'a namespace * name -> ('w, 'a) t
+  end
+  type ('w, 'a) path = ('w, 'a) Path.t
 
   (* Binding *)
   type ('w1, 'w2, 'a) binder = private
@@ -160,9 +158,7 @@ module type NESTING = sig
   type ('v, 'w) transport
   type 'w branch
 
-  type ns_module
-  val modules : ns_module namespace
-  val scope : 'w W.t -> ('w, ns_module) W.v -> 'w branch
+  val project : 'w W.t -> 'a namespace -> ('w, 'a) W.v -> 'w branch
 
   val transport :
     ('v, 'w) transport -> 'v world -> 'w world ->
@@ -172,8 +168,9 @@ end
 module type ENV = sig
   type 'a namespace
   type ('w1, 'w2) scope
-  type ('w, 'a) ident
-  type ('w, 'a) path
+  type (+'w, 'a) ident
+  type 'a pre_path
+  type (+'w, 'a) path
   type ('w1, 'w2, 'a) binder
 
   (* To type fork/merge: type ('w1, 'w2) t *)
@@ -181,8 +178,8 @@ module type ENV = sig
   val empty : W.o t
   val extend : 'w1 t -> ('w1, 'w2) scope -> 'w2 t
 
-  val lookup : 'w t -> 'a namespace -> name Path.t -> ('w, 'a) path option
-  val find : 'w t -> 'a namespace -> name Path.t -> (('w, 'a) path * ('w, 'a) v) option
+  val lookup : 'w t -> 'a pre_path -> ('w, 'a) path option
+  val find : 'w t -> 'a pre_path -> (('w, 'a) path * ('w, 'a) v) option
   val get : 'w t -> 'a namespace -> ('w, 'a) path -> ('w, 'a) v
 
   type 'w fresh = Fresh : ('w1, 'w2, 'a) binder * 'w2 t -> 'w1 fresh
@@ -203,12 +200,13 @@ module type PREENV = sig
     ENV with type 'a namespace := 'a namespace
          and type ('w1, 'w2) scope := ('w1, 'w2) scope
          and type ('w, 'a) ident := ('w, 'a) ident
+         and type 'a pre_path := 'a Path.pre
          and type ('w, 'a) path := ('w, 'a) path
          and type ('w1, 'w2, 'a) binder := ('w1, 'w2, 'a) binder
 end
 
 
-module Make (Namespace : NAMESPACE) :
+module Make (Namespace : ORDERED) :
   PREENV with type 'a namespace = 'a Namespace.t =
 struct
   type 'a namespace = 'a Namespace.t
@@ -235,7 +233,22 @@ struct
       | (Lt | Gt) as a -> a
   end
   type ('w, 'a) ident = ('w, 'a) Ident.t
-  type ('w, 'a) path = ('w, 'a) ident Path.t
+
+  module Path = struct
+    type 'a pre =
+      | Pre_ident : 'a namespace * name -> 'a pre
+      | Pre_dot : _ pre * 'a namespace * name -> 'a pre
+
+    let ident ns name = Pre_ident (ns, name)
+    let dot pre ns name = Pre_dot (pre, ns, name)
+
+    type (+'w, 'a) t =
+      | Ident : ('w, 'a) ident -> ('w, 'a) t
+      | Dot : _ t * 'a namespace * name -> ('w, 'a) t
+
+    let _f x ns n = Dot (x, ns, n)
+  end
+  type ('w, 'a) path = ('w, 'a) Path.t
 
   (* Binding *)
   type ('w1, 'w2, 'a) binder =
@@ -283,6 +296,7 @@ struct
     ENV with type 'a namespace := 'a namespace
          and type ('w1, 'w2) scope := ('w1, 'w2) scope
          and type ('w, 'a) ident := ('w, 'a) ident
+         and type 'a pre_path := 'a Path.pre
          and type ('w, 'a) path := ('w, 'a) path
          and type ('w1, 'w2, 'a) binder := ('w1, 'w2, 'a) binder
   =
@@ -349,14 +363,14 @@ struct
             | Some _ as result -> result
             | None -> Some (Path.Ident ident, value)
 
-    let find (env : 'w t) (ns: 'a Namespace.t) (path : name Path.t)
+    let find (env : 'w t) (path : 'a Path.pre)
       : (('w, 'a) path * ('w, 'a) v) option =
       match path with
-      | Path.Dot _ -> failwith "TODO: Path.Dot"
-      | Path.Ident name -> lookup_binding ns name env.bindings
+      | Path.Pre_dot _ -> failwith "TODO: Path.Dot"
+      | Path.Pre_ident (ns, name) -> lookup_binding ns name env.bindings
 
-    let lookup env ns name =
-      match find env ns name with
+    let lookup env path =
+      match find env path with
       | None -> None
       | Some (path, _) -> Some path
 
