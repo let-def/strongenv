@@ -78,12 +78,12 @@ module type SCOPE = sig
   type ('w1, 'w2, 'a) binder = private
     ('w1, 'w2) W.link * ('w2, 'a) ident * ('w1, 'a) v
 
-  type ('w1, 'w2, 'a) opening = private
-    ('w1, 'w2) W.link * ('w1, 'a) path
+  (*type ('w1, 'w2, 'a) opening = private
+    ('w1, 'w2) W.link * ('w1, 'a) path*)
 
   type ('w1, 'w2) scope =
     | Bind : ('w1, 'w2) scope * ('w2, 'w3, 'a) binder -> ('w1, 'w3) scope
-    | Open : ('w1, 'w2) scope * ('w2, 'w3, 'a) opening -> ('w1, 'w3) scope
+    (*| Open : ('w1, 'w2) scope * ('w2, 'w3, 'a) opening -> ('w1, 'w3) scope*)
     | End : ('w, 'w) scope
 
   type 'w branch = Branch : ('w, 'a) scope -> 'w branch [@@unboxed]
@@ -105,8 +105,8 @@ module type NESTING = sig
   type ('v, 'w) transport
   type 'w branch
 
-  val project : 'w W.t -> 'a namespace -> ('w, 'a) W.v ->
-    [`Local of 'w branch | `Alias of ('w, 'a) path ]
+  val project : 'w W.t -> 'a namespace -> ('w, 'a) W.v -> 'w branch
+    (*[`Local of 'w branch | `Alias of ('w, 'a) path ]*)
 
   val transport :
     ('v, 'w) transport -> 'v world -> 'w world ->
@@ -133,19 +133,19 @@ module type ENV = sig
   type ('w, 'a) fresh = Fresh : ('w1, 'w2, 'a) binder * 'w2 t -> ('w1, 'a) fresh
   val bind : 'w1 t -> 'a namespace -> name -> ('w1, 'a) v -> ('w1, 'a) fresh
 
-  type 'w missing =
+  (*type 'w missing =
     | Missing_path : ('w, 'a) path -> 'w missing
-    | Missing_alias : ('w, 'a) path -> 'w missing
+    | Missing_alias : ('w, 'a) path -> 'w missing*)
 
-  val update : 'w t -> ('w, 'a) ident -> ('w, 'a) v ->
-    (('w, 'a) fresh, [`Missing of 'w missing list]) result
+  val update : 'w t -> ('w, 'a) ident -> ('w, 'a) v -> ('w, 'a) fresh
+    (* (('w, 'a) fresh, [`Missing of 'w missing list]) result *)
 
   val link : 'w1 t -> ('w1, 'w2, 'a) binder -> 'w2 t
-  val shadow_link : 'w1 t -> ('w1, 'w2, 'a) binder -> 'w2 t
+  (*val shadow_link : 'w1 t -> ('w1, 'w2, 'a) binder -> 'w2 t*)
 
-  type ('w, 'a) fresh_open =
-      Fresh : ('w1, 'w2, 'a) binder * 'w2 t -> ('w1, 'a) fresh_open
-  val open_ : 'w t -> ('w, 'a) path -> ('w, 'a) fresh_open
+  (*type ('w, 'a) fresh_open =
+      Open : ('w1, 'w2, 'a) opening * 'w2 t -> ('w1, 'a) fresh_open
+  val open_ : 'w t -> ('w, 'a) path -> ('w, 'a) fresh_open*)
 end
 
 module type PREENV = sig

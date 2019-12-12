@@ -125,18 +125,17 @@ module type SCOPE = sig
   end
   type ('w, 'a) path = ('w, 'a) Path.t
 
-  (* Binding *)
-  type ('w1, 'w2, 'a) binder = private
-    ('w1, 'w2) W.link * ('w2, 'a) ident
-
-  type ('w, 'a) fresh =
-      Fresh : ('w1, 'w2, 'a) binder -> ('w1, 'a) fresh
-  val fresh : 'w W.t -> 'a namespace -> name -> ('w, 'a) fresh
-
   (* Bindings *)
+  type ('w1, 'w2, 'a) binder = private
+    ('w1, 'w2) W.link * ('w2, 'a) ident * ('w1, 'a) v
+
+  (*FIXME: handle open construction
+  type ('w1, 'w2, 'a) opening = private
+    ('w1, 'w2) W.link * ('w1, 'a) path *)
+
   type ('w1, 'w2) scope =
-    | Bind : ('w1, 'w2) scope * ('w2, 'w3, 'a) binder * ('w2, 'a) v -> ('w1, 'w3) scope
-    | Update : ('w1, 'w2) scope * ('w2, 'a) ident * ('w2, 'a) v -> ('w1, 'w2) scope
+    | Bind : ('w1, 'w2) scope * ('w2, 'w3, 'a) binder -> ('w1, 'w3) scope
+    (* | Open : ('w1, 'w2) scope * ('w2, 'w3, 'a) opening -> ('w1, 'w3) scope *)
     | End : ('w, 'w) scope
 
   type 'w branch = Branch : ('w, 'a) scope -> 'w branch [@@unboxed]
@@ -152,18 +151,22 @@ module type SCOPE = sig
   end
 end
 
+
 module type NESTING = sig
   type 'a namespace
   type ('w, 'a) path
   type ('v, 'w) transport
   type 'w branch
 
-  val project : 'w W.t -> 'a namespace -> ('w, 'a) W.v -> 'w branch
+  val project : 'w W.t -> 'a namespace -> ('w, 'a) W.v ->
+    'w branch
+    (*FIXME: support aliases [`Local of 'w branch | `Alias of ('w, 'a) path ]*)
 
   val transport :
     ('v, 'w) transport -> 'v world -> 'w world ->
     'a namespace -> ('v, 'a) W.v -> ('w, 'a) W.v
 end
+
 
 module type ENV = sig
   type 'a namespace
@@ -182,11 +185,23 @@ module type ENV = sig
   val find : 'w t -> 'a pre_path -> (('w, 'a) path * ('w, 'a) v) option
   val get : 'w t -> 'a namespace -> ('w, 'a) path -> ('w, 'a) v
 
-  type 'w fresh = Fresh : ('w1, 'w2, 'a) binder * 'w2 t -> 'w1 fresh
-  val bind : 'w1 t -> 'a namespace -> name -> ('w1, 'a) v -> 'w1 fresh
-  val update : 'w t -> ('w, 'a) ident -> ('w, 'a) v -> 'w t
-  (*val open_ : 'w t -> ('w, Nesting.namespace) path -> ('w1, 'w2) t*)
-  (*val scope : 'w t -> (W.o, 'w2) Scope.t .. should include Open*)
+  type ('w, 'a) fresh = Fresh : ('w1, 'w2, 'a) binder * 'w2 t -> ('w1, 'a) fresh
+  val bind : 'w1 t -> 'a namespace -> name -> ('w1, 'a) v -> ('w1, 'a) fresh
+
+  (*FIXME: verify that updates only make binding structure stronger
+  type 'w missing =
+    | Missing_path : ('w, 'a) path -> 'w missing
+    | Missing_alias : ('w, 'a) path -> 'w missing*)
+
+  val update : 'w t -> ('w, 'a) ident -> ('w, 'a) v -> ('w, 'a) fresh
+    (*FIXME: (('w, 'a) fresh, [`Missing of 'w missing list]) result*)
+
+  val link : 'w1 t -> ('w1, 'w2, 'a) binder -> 'w2 t
+  (*val shadow_link : 'w1 t -> ('w1, 'w2, 'a) binder -> 'w2 t*)
+
+  (*type ('w, 'a) fresh_open =
+      Open : ('w1, 'w2, 'a) binder * 'w2 t -> ('w1, 'a) fresh_open
+  val open_ : 'w t -> ('w, 'a) path -> ('w, 'a) fresh_open*)
 end
 
 module type PREENV = sig
@@ -252,17 +267,11 @@ struct
 
   (* Binding *)
   type ('w1, 'w2, 'a) binder =
-    ('w1, 'w2) W.link * ('w2, 'a) ident
-
-  type ('w, 'a) fresh = Fresh : ('w1, 'w2, 'a) binder -> ('w1, 'a) fresh
-  let fresh w namespace name =
-    let W.Succ link = W.succ w in
-    Fresh (link, { Ident. namespace; name; stamp = W.weak (W.next link) })
+    ('w1, 'w2) W.link * ('w2, 'a) ident * ('w1, 'a) v
 
   (* Bindings *)
   type ('w1, 'w2) scope =
-    | Bind : ('w1, 'w2) scope * ('w2, 'w3, 'a) binder * ('w2, 'a) v -> ('w1, 'w3) scope
-    | Update : ('w1, 'w2) scope * ('w2, 'a) ident * ('w2, 'a) v -> ('w1, 'w2) scope
+    | Bind : ('w1, 'w2) scope * ('w2, 'w3, 'a) binder -> ('w1, 'w3) scope
     | End : ('w, 'w) scope
 
   type 'w branch = Branch : ('w, 'a) scope -> 'w branch [@@unboxed]
@@ -320,7 +329,9 @@ struct
         match Ident.compare ident ident' with
         | Lt -> Bt1.node (add_binding binding left) binding' right
         | Gt -> Bt1.node left binding' (add_binding binding right)
-        | Eq -> Bt1.node left binding right
+        | Eq ->
+          (* TODO: verify that binding is stronger than binding' *)
+          Bt1.node left binding right
 
     let extend_bindings (type w1 w2 a)
         (env : w1 t)
@@ -341,12 +352,12 @@ struct
       fun (env : w1 t) (scope : (w1, w2) scope) ->
       match scope with
       | End -> env
-      | Update (prev, ident, value) ->
+      (*| Update (prev, ident, value) ->
         let { world; bindings } = extend env prev in
         let bindings = add_binding (Binding (ident, value)) bindings in
-        { world; bindings }
-      | Bind (prev, binder, value) ->
-        let (link, ident) = (binder : _ binder :> (_ * _)) in
+        { world; bindings }*)
+      | Bind (prev, binder) ->
+        let (link, ident, value) = (binder : _ binder :> _) in
         extend_bindings (extend env prev) link ident value
 
     let rec lookup_binding
@@ -389,16 +400,31 @@ struct
       | Path.Dot _ -> failwith "TODO: Path.Dot"
       | Path.Ident ident -> get_binding ns ident env.bindings
 
-    type 'w fresh = Fresh : ('w1, 'w2, 'a) binder * 'w2 t -> 'w1 fresh
+    type ('w, 'a) fresh = Fresh : ('w1, 'w2, 'a) binder * 'w2 t -> ('w1, 'a) fresh
 
-    let bind (env : 'w t) (ns : 'a Namespace.t) name (value : ('w, 'a) v) : 'w fresh =
-      let Fresh binder = fresh env.world ns name in
-      let (link, ident) = (binder : _ binder :> (_ * _)) in
-      Fresh (binder, extend_bindings env link ident value)
+    let link (env : 'w1 t)
+        ((link, ident, value) : ('w1, 'w2, 'a) binder) : 'w2 t =
+      extend_bindings env link ident value
 
-    let update (env : 'w t) (ident : ('w, 'a) ident) (value : ('w, 'a) v) : 'w t =
-      let { world; bindings } = env in
-      let bindings = add_binding (Binding (ident, value)) bindings in
-      { world; bindings }
+    let bind
+        (env : 'w t) (namespace : 'a Namespace.t)
+        name (value : ('w, 'a) v) : ('w, 'a) fresh =
+      let W.Succ link = W.succ env.world in
+      let ident = { Ident. namespace; name; stamp = W.weak (W.next link) } in
+      Fresh ((link, ident, value), extend_bindings env link ident value)
+
+    let follow_link (type w1 w2)
+        (link : (w1, w2) W.link) (ident : (w1, 'a) ident) : (w2, 'a) ident
+      =
+      let (module Sub) = W.sub link in
+      let Refl = Sub.eq in
+      (ident : (w1, 'a) ident :> (w2, 'a) ident)
+
+    let update
+        (env : 'w t)
+        (ident : ('w, 'a) ident) (value : ('w, 'a) v) : ('w, 'a) fresh =
+      let W.Succ link = W.succ env.world in
+      let ident = follow_link link ident in
+      Fresh ((link, ident, value), extend_bindings env link ident value)
   end
 end
