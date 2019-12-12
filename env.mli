@@ -74,17 +74,16 @@ module type SCOPE = sig
   end
   type ('w, 'a) path = ('w, 'a) Path.t
 
-  (* Binding *)
-  type ('w1, 'w2, 'a) binder = private
-    ('w1, 'w2) W.link * ('w2, 'a) ident
-
-  type ('w, 'a) fresh = Fresh : ('w1, 'w2, 'a) binder -> ('w1, 'a) fresh
-  val fresh : 'w W.t -> 'a namespace -> name -> ('w, 'a) fresh
-
   (* Bindings *)
+  type ('w1, 'w2, 'a) binder = private
+    ('w1, 'w2) W.link * ('w2, 'a) ident * ('w1, 'a) v
+
+  type ('w1, 'w2, 'a) opening = private
+    ('w1, 'w2) W.link * ('w1, 'a) path
+
   type ('w1, 'w2) scope =
-    | Bind : ('w1, 'w2) scope * ('w2, 'w3, 'a) binder * ('w2, 'a) v -> ('w1, 'w3) scope
-    | Update : ('w1, 'w2) scope * ('w2, 'a) ident * ('w2, 'a) v -> ('w1, 'w2) scope
+    | Bind : ('w1, 'w2) scope * ('w2, 'w3, 'a) binder -> ('w1, 'w3) scope
+    | Open : ('w1, 'w2) scope * ('w2, 'w3, 'a) opening -> ('w1, 'w3) scope
     | End : ('w, 'w) scope
 
   type 'w branch = Branch : ('w, 'a) scope -> 'w branch [@@unboxed]
@@ -106,7 +105,8 @@ module type NESTING = sig
   type ('v, 'w) transport
   type 'w branch
 
-  val project : 'w W.t -> 'a namespace -> ('w, 'a) W.v -> 'w branch
+  val project : 'w W.t -> 'a namespace -> ('w, 'a) W.v ->
+    [`Local of 'w branch | `Alias of ('w, 'a) path ]
 
   val transport :
     ('v, 'w) transport -> 'v world -> 'w world ->
@@ -130,11 +130,22 @@ module type ENV = sig
   val find : 'w t -> 'a pre_path -> (('w, 'a) path * ('w, 'a) v) option
   val get : 'w t -> 'a namespace -> ('w, 'a) path -> ('w, 'a) v
 
-  type 'w fresh = Fresh : ('w1, 'w2, 'a) binder * 'w2 t -> 'w1 fresh
-  val bind : 'w1 t -> 'a namespace -> name -> ('w1, 'a) v -> 'w1 fresh
-  val update : 'w t -> ('w, 'a) ident -> ('w, 'a) v -> 'w t
-  (*val open_ : 'w t -> ('w, Nesting.namespace) path -> ('w1, 'w2) t*)
-  (*val scope : 'w t -> (W.o, 'w2) Scope.t .. should include Open*)
+  type ('w, 'a) fresh = Fresh : ('w1, 'w2, 'a) binder * 'w2 t -> ('w1, 'a) fresh
+  val bind : 'w1 t -> 'a namespace -> name -> ('w1, 'a) v -> ('w1, 'a) fresh
+
+  type 'w missing =
+    | Missing_path : ('w, 'a) path -> 'w missing
+    | Missing_alias : ('w, 'a) path -> 'w missing
+
+  val update : 'w t -> ('w, 'a) ident -> ('w, 'a) v ->
+    (('w, 'a) fresh, [`Missing of 'w missing list]) result
+
+  val link : 'w1 t -> ('w1, 'w2, 'a) binder -> 'w2 t
+  val shadow_link : 'w1 t -> ('w1, 'w2, 'a) binder -> 'w2 t
+
+  type ('w, 'a) fresh_open =
+      Fresh : ('w1, 'w2, 'a) binder * 'w2 t -> ('w1, 'a) fresh_open
+  val open_ : 'w t -> ('w, 'a) path -> ('w, 'a) fresh_open
 end
 
 module type PREENV = sig
