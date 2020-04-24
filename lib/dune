@@ -1,9 +1,15 @@
 (library
- (name flat)
- (modules flat)
- (wrapped false))
+ (name world)
+ (wrapped false)
+ (modules type world))
 
 (library
- (name modular)
- (modules modular)
- (wrapped false))
+ (name flat)
+ (modules flat)
+ (wrapped false)
+ (libraries world))
+
+;(library
+; (name modular)
+; (modules modular)
+; (wrapped false))
