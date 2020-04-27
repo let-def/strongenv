@@ -471,3 +471,12 @@ module Typed = struct
       | Syntax.Ty_arr _ as typ -> Format.fprintf ppf "@[(%a)@]" print_typ typ
       | Syntax.Ty_var tvar -> print_tvar ppf tvar
 end
+
+let () =
+  let module Initial = Env.Make() in
+  let tast =
+    Typed.reconstruct Initial.env
+      Source.Infix.(let- app = "app", "f" @-> "x" @-> !"f" % !"x" in app)
+  in
+  Format.printf "%a\n%!" Typed.print_term tast
+

@@ -1,13 +1,13 @@
-(executable
+(test
  (name test_sysf)
  (modules test_sysf)
  (libraries flat))
 
-(executable
+(test
  (name test_hm_base)
  (modules test_hm_base))
 
-(executable
+(test
  (name test_hm_strong)
  (modules test_hm_strong)
  (libraries flat))

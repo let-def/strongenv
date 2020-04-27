@@ -190,3 +190,11 @@ module Typed = struct
     | TArrow _ as typ -> Format.fprintf ppf "@[(%a)@]" print_typ typ
     | TVar tvar -> print_tvar ppf tvar
 end
+
+let () =
+  let level = Typed.first_level () in
+  let tast =
+    Typed.reconstruct level []
+      Source.Infix.(let- app = "app", "f" @-> "x" @-> !"f" % !"x" in app)
+  in
+  Format.printf "%a\n%!" Typed.print_tlam tast
