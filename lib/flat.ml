@@ -184,23 +184,24 @@ struct
 
   type 'w env = {
     world: 'w world;
-    bindings : 'w binding list;
+    bindings : 'w binding Dbseq.t;
   }
 
-  let empty = { world = World.empty; bindings = [] }
+  let empty = { world = World.empty; bindings = Dbseq.empty }
 
   let world t = t.world
 
+  let ident_index (type w a) (env : w env) (ident : (w, a) ident) : int =
+    let w_id = (World.card env.world :> int) in
+    let b_id = (ident.Ident.stamp :> int) in
+    (w_id - b_id - 1)
+
   let get (type w a) (env : w env) (ident : (w, a) ident) : (w, a) v_weak =
-    let rec aux : w binding list -> (w, a) v_weak = function
-      | [] -> failwith "Internal error: unbound get"
-      | Binding (ident', v) :: tl ->
-        begin match Ident.compare ident ident' with
-          | Lt | Gt -> aux tl
-          | Eq -> v
-        end
-    in
-    aux env.bindings
+    let index = ident_index env ident in
+    let Binding (ident', v) = Dbseq.get index env.bindings  in
+    match Ident.compare ident ident' with
+    | Lt | Gt -> failwith "Internal error: unbound get"
+    | Eq -> v
 
   type ('w, 'a) fresh =
       Fresh : ('w1, 'w2, 'a) binder * 'w2 env -> ('w1, 'a) fresh
@@ -210,9 +211,9 @@ struct
     let (module Sub) = World.sub link in
     let Refl = Sub.eq in
     let v = (v : (w1, a) v_weak :> (w2, a) v_weak) in
-    let bindings =
-      Binding (id, v) ::
-      (env.bindings : w1 binding list :> w2 binding list)
+    let bindings = Dbseq.add
+        (Binding (id, v))
+        (env.bindings : w1 binding Dbseq.t :> w2 binding Dbseq.t)
     in
     {world = World.target link; bindings}
 
@@ -235,7 +236,14 @@ struct
   let update (type w a) (env : w env)
       (ident : (w, a) ident) (v : (w, a) v_weak) : (w, a) fresh =
     let World.Extension (link : (w, _) World.link) = World.extend env.world in
-    let sub = World.sub link in
+    let index = ident_index env ident in
+    let bindings = Dbseq.update env.bindings index
+        (fun (Binding (ident', _v')) ->
+           match Ident.compare ident ident' with
+           | Lt | Gt -> failwith "Internal error: unbound update"
+           | Eq -> Binding (ident, v))
+    in
+    let env = {env with bindings} and sub = World.sub link in
     let binder' = Binder (link, coerce_ident sub ident, v) in
     Fresh (binder', binder env binder')
 

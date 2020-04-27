@@ -7,7 +7,7 @@
  (name flat)
  (modules flat)
  (wrapped false)
- (libraries world))
+ (libraries world grenier.dbseq))
 
 ;(library
 ; (name modular)
