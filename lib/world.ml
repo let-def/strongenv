@@ -85,13 +85,27 @@ let minimize (type w) (W _ : w world) (elt : w elt) : w minimal =
   Minimal (Link elt, refl_sub)
 
 type (+'w, 'a) v_weak = V_weak : 'w_ world * ('w_, 'a) v -> ('w, 'a) v_weak
-let weaken (type w a) (w : w world) (v : (w, a) v) : (w, a) v_weak =
+let v_weak (type w a) (w : w world) (v : (w, a) v) : (w, a) v_weak =
   V_weak (w, v)
 
 type ('w, 'a) unpack =
     Unpack : 'w0 world * ('w0, 'w1) sub * ('w0, 'a) v -> ('w1, 'a) unpack
 let unpack (type w a) (W _ : w world)
     (V_weak ((W _ as w), v) : (w, a) v_weak) : (w, a) unpack =
+  Unpack (w, refl_sub, v)
+
+type (+'w, 'a) v_ref =
+  | V_ref : { mutable w : o world; mutable v : (o, 'a) v } -> ('w, 'a) v_ref
+let v_ref (type w a) (W _ as w : w world) (v : (w, a) v) : (w, a) v_ref =
+  V_ref {w; v}
+
+let v_set (type w' w) (V_ref r : (w,'a) v_ref)
+    (W _ as w : w' world) (_ : (w',w) sub) (v : (w,'a) v) =
+  r.w <- w;
+  r.v <- v
+
+let v_get (type w a) (W _ : w world) (V_ref { w; v } : (w, a) v_ref)
+  : (w, a) unpack =
   Unpack (w, refl_sub, v)
 
 let unsafe_eq (type w) (W _ : w world) : (w, o) eq = Refl

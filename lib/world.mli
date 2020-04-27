@@ -42,10 +42,15 @@ type 'w minimal = Minimal : ('w0, 'w1) link * ('w1, 'w2) sub -> 'w2 minimal
 val minimize : 'w world -> 'w elt -> 'w minimal
 
 type (+'w, 'a) v_weak
-val weaken : 'w world -> ('w, 'a) v -> ('w, 'a) v_weak
+val v_weak : 'w world -> ('w, 'a) v -> ('w, 'a) v_weak
 type ('w, 'a) unpack =
     Unpack : 'w0 world * ('w0, 'w1) sub * ('w0, 'a) v -> ('w1, 'a) unpack
 val unpack : 'w world -> ('w, 'a) v_weak -> ('w, 'a) unpack
+
+type (+'w, 'a) v_ref
+val v_ref : 'w world -> ('w, 'a) v -> ('w, 'a) v_ref
+val v_set : ('w, 'a) v_ref -> 'v world -> ('v, 'w) sub -> ('w, 'a) v -> unit
+val v_get : 'w world -> ('w, 'a) v_ref -> ('w, 'a) unpack
 
 val equal : ('w1, 'w2) sub -> 'w1 world -> 'w2 world -> ('w1, 'w2) eq option
 val unsafe_eq : 'w world -> ('w, o) eq

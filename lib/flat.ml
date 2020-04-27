@@ -45,7 +45,8 @@ module type CONTEXT = sig
   type ('w, 'a) fresh =
       Fresh : ('w1, 'w2, 'a) binder * 'w2 env -> ('w1, 'a) fresh
 
-  val empty : unit -> World.o env
+  val empty : World.o env
+  val world : 'w env -> 'w world
   val lookup : 'w env -> 'a namespace -> name -> ('w, 'a) ident option
   val find : 'w env -> 'a namespace -> name -> (('w, 'a) ident * ('w, 'a) v_weak) option
   val get : 'w env -> ('w, 'a) ident -> ('w, 'a) v_weak
@@ -185,7 +186,7 @@ struct
           w0 t1.target
       in
       let v' : (v1, a) v_weak =
-        World.weaken t1.target (transport t0 id.namespace v)
+        World.v_weak t1.target (transport t0 id.namespace v)
       in
       Binder (t2, Binder (link', ident t2 id, v'))
   end
@@ -198,7 +199,9 @@ struct
     bindings : 'w binding list;
   }
 
-  let empty () = { world = World.empty; bindings = [] }
+  let empty = { world = World.empty; bindings = [] }
+
+  let world t = t.world
 
   let lookup (type w a) (env : w env) (ns : a namespace) name
     : (w, a) ident option =
@@ -259,7 +262,7 @@ struct
     Fresh (binder', binder env binder')
 
   let bind' env namespace name v =
-    bind env namespace name (World.weaken env.world v)
+    bind env namespace name (World.v_weak env.world v)
 
   let coerce_ident (type w1 w2 a) ((module Sub) : (w1, w2) World.sub)
       (id : (w1, a) ident) : (w2, a) ident =
@@ -274,5 +277,5 @@ struct
     Fresh (binder', binder env binder')
 
   let update' env ident v =
-    update env ident (World.weaken env.world v)
+    update env ident (World.v_weak env.world v)
 end

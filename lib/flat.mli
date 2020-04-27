@@ -51,7 +51,8 @@ module type CONTEXT = sig
   type ('w, 'a) fresh =
       Fresh : ('w1, 'w2, 'a) binder * 'w2 env -> ('w1, 'a) fresh
 
-  val empty : unit -> World.o env
+  val empty : World.o env
+  val world : 'w env -> 'w world
   val lookup : 'w env -> 'a namespace -> name -> ('w, 'a) ident option
   val find : 'w env -> 'a namespace -> name -> (('w, 'a) ident * ('w, 'a) v_weak) option
   val get : 'w env -> ('w, 'a) ident -> ('w, 'a) v_weak
