@@ -7,7 +7,6 @@
 type 'a world = 'a World.world
 type ('w, 'a) v = ('w, 'a) World.v
 type (+'w, 'a) v_weak = ('w, 'a) World.v_weak
-type name = string
 
 module type CONTEXT = sig
   type 'a namespace
@@ -15,9 +14,8 @@ module type CONTEXT = sig
   (* Names *)
   module Ident : sig
     type (+'w, 'a) t = private
-      { namespace : 'a namespace; name : name; stamp : 'w World.elt }
+      { namespace : 'a namespace; stamp : 'w World.elt }
     val compare : ('w, 'a) t -> ('w, 'b) t -> ('a, 'b) Type.order
-    val compare_name : 'a namespace -> string -> ('w, 'b) t -> ('a, 'b) Type.order
     val retract : 'w1 world -> 'w2 world -> ('w1, 'w2) World.sub ->
       ('w2, 'a) t -> ('w1, 'a) t option
   end
@@ -53,11 +51,9 @@ module type CONTEXT = sig
 
   val empty : World.o env
   val world : 'w env -> 'w world
-  val lookup : 'w env -> 'a namespace -> name -> ('w, 'a) ident option
-  val find : 'w env -> 'a namespace -> name -> (('w, 'a) ident * ('w, 'a) v_weak) option
   val get : 'w env -> ('w, 'a) ident -> ('w, 'a) v_weak
-  val bind : 'w env -> 'a namespace -> name -> ('w, 'a) v_weak -> ('w, 'a) fresh
-  val bind' : 'w env -> 'a namespace -> name -> ('w, 'a) v -> ('w, 'a) fresh
+  val bind : 'w env -> 'a namespace -> ('w, 'a) v_weak -> ('w, 'a) fresh
+  val bind' : 'w env -> 'a namespace -> ('w, 'a) v -> ('w, 'a) fresh
   val update : 'w env -> ('w, 'a) ident -> ('w, 'a) v_weak -> ('w, 'a) fresh
   val update' : 'w env -> ('w, 'a) ident -> ('w, 'a) v -> ('w, 'a) fresh
 end

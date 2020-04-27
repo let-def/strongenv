@@ -1,7 +1,6 @@
 type 'a world = 'a World.world
 type ('w, 'a) v = ('w, 'a) World.v
 type (+'w, 'a) v_weak = ('w, 'a) World.v_weak
-type name = string
 
 module type CONTEXT = sig
   type 'a namespace
@@ -9,9 +8,8 @@ module type CONTEXT = sig
   (* Names *)
   module Ident : sig
     type (+'w, 'a) t = private
-      { namespace : 'a namespace; name : name; stamp : 'w World.elt }
+      { namespace : 'a namespace; stamp : 'w World.elt }
     val compare : ('w, 'a) t -> ('w, 'b) t -> ('a, 'b) Type.order
-    val compare_name : 'a namespace -> string -> ('w, 'b) t -> ('a, 'b) Type.order
     val retract : 'w1 world -> 'w2 world -> ('w1, 'w2) World.sub ->
       ('w2, 'a) t -> ('w1, 'a) t option
   end
@@ -47,11 +45,9 @@ module type CONTEXT = sig
 
   val empty : World.o env
   val world : 'w env -> 'w world
-  val lookup : 'w env -> 'a namespace -> name -> ('w, 'a) ident option
-  val find : 'w env -> 'a namespace -> name -> (('w, 'a) ident * ('w, 'a) v_weak) option
   val get : 'w env -> ('w, 'a) ident -> ('w, 'a) v_weak
-  val bind : 'w env -> 'a namespace -> name -> ('w, 'a) v_weak -> ('w, 'a) fresh
-  val bind' : 'w env -> 'a namespace -> name -> ('w, 'a) v -> ('w, 'a) fresh
+  val bind : 'w env -> 'a namespace -> ('w, 'a) v_weak -> ('w, 'a) fresh
+  val bind' : 'w env -> 'a namespace -> ('w, 'a) v -> ('w, 'a) fresh
   val update : 'w env -> ('w, 'a) ident -> ('w, 'a) v_weak -> ('w, 'a) fresh
   val update' : 'w env -> ('w, 'a) ident -> ('w, 'a) v -> ('w, 'a) fresh
 end
@@ -95,25 +91,15 @@ struct
 
   (* Names *)
   module Ident = struct
-    type (+'w, 'a) t =
-      { namespace : 'a namespace; name : name; stamp : 'w World.elt }
+    type (+'w, 'a) t = { namespace : 'a namespace; stamp : 'w World.elt }
     let compare (type a b) (a : ('w, a) t) (b : ('w, b) t) : (a, b) World.order =
       match Namespace.compare a.namespace b.namespace with
       | Eq ->
         World.order_compare (
-          match String.compare a.name b.name with
-          | 0 -> Int.compare
-                   (a.stamp : _ World.elt :> int)
-                   (b.stamp : _ World.elt :> int)
-          | n -> n
+          Int.compare
+            (a.stamp : _ World.elt :> int)
+            (b.stamp : _ World.elt :> int)
         )
-      | (Lt | Gt) as a -> a
-
-    let compare_name
-        (type a b) (a : a namespace) name (b : (_, b) t)
-      : (a, b) World.order =
-      match Namespace.compare a b.namespace with
-      | Eq -> World.order_compare (String.compare name b.name)
       | (Lt | Gt) as a -> a
 
     let coerce_stamp (type w1 w2) ((module Sub) : (w1, w2) World.sub) stamp =
@@ -122,14 +108,16 @@ struct
 
     let retract (type w1 w2) (w1 : w1 world) (w2 : w2 world)
         (w1w2 : (w1, w2) World.sub)
-        ({namespace; name; stamp} : (w2, 'a) t) : (w1, 'a) t option =
+        ({namespace; stamp} : (w2, 'a) t) : (w1, 'a) t option =
+      (* Faster implementation: stamp is not going to change,
+         so just compare stamp and world, then use unsafe_eq to coerce *)
       let World.Minimal (l0, w0w2) = World.minimize w2 stamp in
       match World.chain w1 w1w2 (World.target l0) w0w2 with
       | World.Before _ -> None
-      | World.Same -> Some { namespace; name; stamp = World.elt l0 }
+      | World.Same -> Some { namespace; stamp = World.elt l0 }
       | World.After sub ->
         let stamp = coerce_stamp sub (World.elt l0) in
-        Some { namespace; name; stamp }
+        Some { namespace; stamp }
   end
   type ('w, 'a) ident = ('w, 'a) Ident.t
 
@@ -203,31 +191,6 @@ struct
 
   let world t = t.world
 
-  let lookup (type w a) (env : w env) (ns : a namespace) name
-    : (w, a) ident option =
-    let rec aux : w binding list -> (w, a) ident option = function
-      | [] -> None
-      | Binding (ident, _) :: tl ->
-        begin match Ident.compare_name ns name ident with
-          | Lt | Gt -> aux tl
-          | Eq -> Some ident
-        end
-    in
-    aux env.bindings
-
-  let find (type w a) (env : w env) (ns : a namespace) name
-    : ((w, a) ident * (w, a) v_weak) option =
-    let rec aux : w binding list -> ((w, a) ident * (w, a) v_weak) option =
-      function
-      | [] -> None
-      | Binding (ident, v) :: tl ->
-        begin match Ident.compare_name ns name ident with
-          | Lt | Gt -> aux tl
-          | Eq -> Some (ident, v)
-        end
-    in
-    aux env.bindings
-
   let get (type w a) (env : w env) (ident : (w, a) ident) : (w, a) v_weak =
     let rec aux : w binding list -> (w, a) v_weak = function
       | [] -> failwith "Internal error: unbound get"
@@ -254,15 +217,15 @@ struct
     {world = World.target link; bindings}
 
   let bind (type w a) (env : w env) (namespace : a namespace)
-      name (v : (w, a) v_weak) : (w, a) fresh =
+      (v : (w, a) v_weak) : (w, a) fresh =
     let World.Extension link = World.extend env.world in
     let binder' =
-      Binder (link, {Ident. name; namespace; stamp = World.elt link}, v)
+      Binder (link, {Ident. namespace; stamp = World.elt link}, v)
     in
     Fresh (binder', binder env binder')
 
-  let bind' env namespace name v =
-    bind env namespace name (World.v_weak env.world v)
+  let bind' env namespace v =
+    bind env namespace (World.v_weak env.world v)
 
   let coerce_ident (type w1 w2 a) ((module Sub) : (w1, w2) World.sub)
       (id : (w1, a) ident) : (w2, a) ident =
