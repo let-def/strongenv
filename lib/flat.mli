@@ -5,8 +5,8 @@
 *)
 
 type 'a world = 'a World.world
-type ('w, 'a) v = ('w, 'a) World.v
-type (+'w, 'a) v_weak = ('w, 'a) World.v_weak
+type ('w, 'a) v_strong = ('w, 'a) World.v_strong
+type (+'w, 'a) v = ('w, 'a) World.v
 
 module type CONTEXT = sig
   type 'a namespace
@@ -23,7 +23,7 @@ module type CONTEXT = sig
 
   (* Bindings *)
   type ('w1, 'w2, 'a) binder = private
-    Binder of ('w1, 'w2) World.link * ('w2, 'a) ident * ('w1, 'a) v_weak
+    Binder of ('w1, 'w2) World.link * ('w2, 'a) ident * ('w1, 'a) v
 
   type ('w, 'v) transport
   module Transport : sig
@@ -51,11 +51,11 @@ module type CONTEXT = sig
 
   val empty : World.o env
   val world : 'w env -> 'w world
-  val get : 'w env -> ('w, 'a) ident -> ('w, 'a) v_weak
-  val bind : 'w env -> 'a namespace -> ('w, 'a) v_weak -> ('w, 'a) fresh
-  val bind' : 'w env -> 'a namespace -> ('w, 'a) v -> ('w, 'a) fresh
-  val update : 'w env -> ('w, 'a) ident -> ('w, 'a) v_weak -> ('w, 'a) fresh
-  val update' : 'w env -> ('w, 'a) ident -> ('w, 'a) v -> ('w, 'a) fresh
+  val get : 'w env -> ('w, 'a) ident -> ('w, 'a) v
+  val bind : 'w env -> 'a namespace -> ('w, 'a) v -> ('w, 'a) fresh
+  val bind' : 'w env -> 'a namespace -> ('w, 'a) v_strong -> ('w, 'a) fresh
+  val update : 'w env -> ('w, 'a) ident -> ('w, 'a) v -> ('w, 'a) fresh
+  val update' : 'w env -> ('w, 'a) ident -> ('w, 'a) v_strong -> ('w, 'a) fresh
 end
 
 module type NEW_CONTEXT = sig
@@ -63,7 +63,7 @@ module type NEW_CONTEXT = sig
 
   type configuration = {
     transport : 'w 'v 'a.  ('w, 'v) transport ->
-      'a namespace -> ('w, 'a) v -> ('v, 'a) v
+      'a namespace -> ('w, 'a) v_strong -> ('v, 'a) v_strong
   }
   val configure : configuration -> unit
 end

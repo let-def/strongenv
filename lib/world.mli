@@ -41,11 +41,11 @@ end
 type 'w minimal = Minimal : ('w0, 'w1) link * ('w1, 'w2) sub -> 'w2 minimal
 val minimize : 'w world -> 'w elt -> 'w minimal
 
-type (+'w, 'a) v_weak
-val v_weak : 'w world -> ('w, 'a) v_strong -> ('w, 'a) v_weak
+type (+'w, 'a) v
+val v : 'w world -> ('w, 'a) v_strong -> ('w, 'a) v
 type ('w, 'a) unpack =
     Unpack : 'w0 world * ('w0, 'w1) sub * ('w0, 'a) v_strong -> ('w1, 'a) unpack
-val unpack : 'w world -> ('w, 'a) v_weak -> ('w, 'a) unpack
+val unpack : 'w world -> ('w, 'a) v -> ('w, 'a) unpack
 
 type (+'w, 'a) v_ref
 val v_ref : 'w world -> ('w, 'a) v_strong -> ('w, 'a) v_ref

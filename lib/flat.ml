@@ -1,6 +1,6 @@
 type 'a world = 'a World.world
-type ('w, 'a) v = ('w, 'a) World.v
-type (+'w, 'a) v_weak = ('w, 'a) World.v_weak
+type ('w, 'a) v_strong = ('w, 'a) World.v_strong
+type (+'w, 'a) v = ('w, 'a) World.v
 
 module type CONTEXT = sig
   type 'a namespace
@@ -17,7 +17,7 @@ module type CONTEXT = sig
 
   (* Bindings *)
   type ('w1, 'w2, 'a) binder = private
-    Binder of ('w1, 'w2) World.link * ('w2, 'a) ident * ('w1, 'a) v_weak
+    Binder of ('w1, 'w2) World.link * ('w2, 'a) ident * ('w1, 'a) v
 
   type ('w, 'v) transport
   module Transport : sig
@@ -45,11 +45,11 @@ module type CONTEXT = sig
 
   val empty : World.o env
   val world : 'w env -> 'w world
-  val get : 'w env -> ('w, 'a) ident -> ('w, 'a) v_weak
-  val bind : 'w env -> 'a namespace -> ('w, 'a) v_weak -> ('w, 'a) fresh
-  val bind' : 'w env -> 'a namespace -> ('w, 'a) v -> ('w, 'a) fresh
-  val update : 'w env -> ('w, 'a) ident -> ('w, 'a) v_weak -> ('w, 'a) fresh
-  val update' : 'w env -> ('w, 'a) ident -> ('w, 'a) v -> ('w, 'a) fresh
+  val get : 'w env -> ('w, 'a) ident -> ('w, 'a) v
+  val bind : 'w env -> 'a namespace -> ('w, 'a) v -> ('w, 'a) fresh
+  val bind' : 'w env -> 'a namespace -> ('w, 'a) v_strong -> ('w, 'a) fresh
+  val update : 'w env -> ('w, 'a) ident -> ('w, 'a) v -> ('w, 'a) fresh
+  val update' : 'w env -> ('w, 'a) ident -> ('w, 'a) v_strong -> ('w, 'a) fresh
 end
 
 module type NEW_CONTEXT = sig
@@ -57,7 +57,7 @@ module type NEW_CONTEXT = sig
 
   type configuration = {
     transport : 'w 'v 'a.  ('w, 'v) transport ->
-      'a namespace -> ('w, 'a) v -> ('v, 'a) v
+      'a namespace -> ('w, 'a) v_strong -> ('v, 'a) v_strong
   }
   val configure : configuration -> unit
 end
@@ -74,7 +74,7 @@ struct
 
   type configuration = {
     transport : 'w 'v 'a.  ('w, 'v) transport ->
-      'a namespace -> ('w, 'a) v -> ('v, 'a) v
+      'a namespace -> ('w, 'a) v_strong -> ('v, 'a) v_strong
   }
   let unconfigured = {
     transport = fun _ -> failwith
@@ -123,7 +123,7 @@ struct
 
   (* Bindings *)
   type ('w1, 'w2, 'a) binder =
-    Binder of ('w1, 'w2) World.link * ('w2, 'a) ident * ('w1, 'a) v_weak
+    Binder of ('w1, 'w2) World.link * ('w2, 'a) ident * ('w1, 'a) v
 
   module Transport : sig
     val source : ('w, 'v) transport -> 'w world
@@ -173,14 +173,14 @@ struct
         mk (World.Transport.compose (World.Transport.sub w0w1) t1.world)
           w0 t1.target
       in
-      let v' : (v1, a) v_weak =
-        World.v_weak t1.target (transport t0 id.namespace v)
+      let v' : (v1, a) v =
+        World.v t1.target (transport t0 id.namespace v)
       in
       Binder (t2, Binder (link', ident t2 id, v'))
   end
 
   type +'w binding =
-      Binding : ('w, 'a) ident * ('w, 'a) v_weak -> 'w binding
+      Binding : ('w, 'a) ident * ('w, 'a) v -> 'w binding
 
   type 'w env = {
     world: 'w world;
@@ -196,7 +196,7 @@ struct
     let b_id = (ident.Ident.stamp :> int) in
     (w_id - b_id - 1)
 
-  let get (type w a) (env : w env) (ident : (w, a) ident) : (w, a) v_weak =
+  let get (type w a) (env : w env) (ident : (w, a) ident) : (w, a) v =
     let index = ident_index env ident in
     let Binding (ident', v) = Dbseq.get index env.bindings  in
     match Ident.compare ident ident' with
@@ -210,7 +210,7 @@ struct
       (env : w1 env) (Binder (link, id, v) : (w1, w2, a) binder) : w2 env =
     let (module Sub) = World.sub link in
     let Refl = Sub.eq in
-    let v = (v : (w1, a) v_weak :> (w2, a) v_weak) in
+    let v = (v : (w1, a) v :> (w2, a) v) in
     let bindings = Dbseq.add
         (Binding (id, v))
         (env.bindings : w1 binding Dbseq.t :> w2 binding Dbseq.t)
@@ -218,7 +218,7 @@ struct
     {world = World.target link; bindings}
 
   let bind (type w a) (env : w env) (namespace : a namespace)
-      (v : (w, a) v_weak) : (w, a) fresh =
+      (v : (w, a) v) : (w, a) fresh =
     let World.Extension link = World.extend env.world in
     let binder' =
       Binder (link, {Ident. namespace; stamp = World.elt link}, v)
@@ -226,7 +226,7 @@ struct
     Fresh (binder', binder env binder')
 
   let bind' env namespace v =
-    bind env namespace (World.v_weak env.world v)
+    bind env namespace (World.v env.world v)
 
   let coerce_ident (type w1 w2 a) ((module Sub) : (w1, w2) World.sub)
       (id : (w1, a) ident) : (w2, a) ident =
@@ -234,7 +234,7 @@ struct
     (id : (w1, a) ident :> (w2, a) ident)
 
   let update (type w a) (env : w env)
-      (ident : (w, a) ident) (v : (w, a) v_weak) : (w, a) fresh =
+      (ident : (w, a) ident) (v : (w, a) v) : (w, a) fresh =
     let World.Extension (link : (w, _) World.link) = World.extend env.world in
     let index = ident_index env ident in
     let bindings = Dbseq.update env.bindings index
@@ -248,5 +248,5 @@ struct
     Fresh (binder', binder env binder')
 
   let update' env ident v =
-    update env ident (World.v_weak env.world v)
+    update env ident (World.v env.world v)
 end

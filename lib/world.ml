@@ -84,14 +84,14 @@ type 'w minimal = Minimal : ('w0, 'w1) link * ('w1, 'w2) sub -> 'w2 minimal
 let minimize (type w) (W _ : w world) (elt : w elt) : w minimal =
   Minimal (Link elt, refl_sub)
 
-type (+'w, 'a) v_weak = V_weak : 'w_ world * ('w_, 'a) v_strong -> ('w, 'a) v_weak
-let v_weak (type w a) (w : w world) (v : (w, a) v_strong) : (w, a) v_weak =
+type (+'w, 'a) v = V_weak : 'w_ world * ('w_, 'a) v_strong -> ('w, 'a) v
+let v (type w a) (w : w world) (v : (w, a) v_strong) : (w, a) v =
   V_weak (w, v)
 
 type ('w, 'a) unpack =
     Unpack : 'w0 world * ('w0, 'w1) sub * ('w0, 'a) v_strong -> ('w1, 'a) unpack
 let unpack (type w a) (W _ : w world)
-    (V_weak ((W _ as w), v) : (w, a) v_weak) : (w, a) unpack =
+    (V_weak ((W _ as w), v) : (w, a) v) : (w, a) unpack =
   Unpack (w, refl_sub, v)
 
 type (+'w, 'a) v_ref =
