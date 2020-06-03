@@ -4,7 +4,7 @@ type o
 type 'w world
 type 'w t = 'w world
 type +'w elt = private int
-type ('w, 'a) v
+type ('w, 'a) v_strong
 
 val empty : o world (* A world with no bindings *)
 
@@ -19,8 +19,8 @@ val elt : ('a, 'b) link -> 'b elt
 module type INDEXED = sig
   type 'w t
   type p
-  val pack : 'w world -> 'w t -> ('w, p) v
-  val unpack : 'w world -> ('w, p) v -> 'w t
+  val pack : 'w world -> 'w t -> ('w, p) v_strong
+  val unpack : 'w world -> ('w, p) v_strong -> 'w t
 end
 
 module Indexed0 (P : sig type 'w t end) : INDEXED with type 'w t = 'w P.t
@@ -42,14 +42,14 @@ type 'w minimal = Minimal : ('w0, 'w1) link * ('w1, 'w2) sub -> 'w2 minimal
 val minimize : 'w world -> 'w elt -> 'w minimal
 
 type (+'w, 'a) v_weak
-val v_weak : 'w world -> ('w, 'a) v -> ('w, 'a) v_weak
+val v_weak : 'w world -> ('w, 'a) v_strong -> ('w, 'a) v_weak
 type ('w, 'a) unpack =
-    Unpack : 'w0 world * ('w0, 'w1) sub * ('w0, 'a) v -> ('w1, 'a) unpack
+    Unpack : 'w0 world * ('w0, 'w1) sub * ('w0, 'a) v_strong -> ('w1, 'a) unpack
 val unpack : 'w world -> ('w, 'a) v_weak -> ('w, 'a) unpack
 
 type (+'w, 'a) v_ref
-val v_ref : 'w world -> ('w, 'a) v -> ('w, 'a) v_ref
-val v_set : ('w, 'a) v_ref -> 'v world -> ('v, 'w) sub -> ('w, 'a) v -> unit
+val v_ref : 'w world -> ('w, 'a) v_strong -> ('w, 'a) v_ref
+val v_set : ('w, 'a) v_ref -> 'v world -> ('v, 'w) sub -> ('w, 'a) v_strong -> unit
 val v_get : 'w world -> ('w, 'a) v_ref -> ('w, 'a) unpack
 
 val equal : ('w1, 'w2) sub -> 'w1 world -> 'w2 world -> ('w1, 'w2) eq option

@@ -4,7 +4,7 @@ type o = |
 type 'w world = W : int -> o world [@@ocaml.unboxed]
 type 'w t = 'w world
 type +'w elt = int
-type (+'w, 'a) v = 'a
+type (+'w, 'a) v_strong = 'a
 
 let empty : o world = W 0
 
@@ -22,15 +22,15 @@ let elt (type a b) (Link a : (a, b) link) = a
 module type INDEXED = sig
   type 'w t
   type p
-  val pack : 'w world -> 'w t -> ('w, p) v
-  val unpack : 'w world -> ('w, p) v -> 'w t
+  val pack : 'w world -> 'w t -> ('w, p) v_strong
+  val unpack : 'w world -> ('w, p) v_strong -> 'w t
 end
 
 module Indexed0 (P : sig type 'w t end) = struct
   type 'w t = 'w P.t
   type p = o P.t
-  let pack (type w1) (W _ : w1 world) (p : w1 P.t) : (w1, p) v = p
-  let unpack (type w1) (W _ : w1 world) (p : (w1, p) v) : w1 t = p
+  let pack (type w1) (W _ : w1 world) (p : w1 P.t) : (w1, p) v_strong = p
+  let unpack (type w1) (W _ : w1 world) (p : (w1, p) v_strong) : w1 t = p
 end
 
 module Transport : sig
@@ -84,23 +84,23 @@ type 'w minimal = Minimal : ('w0, 'w1) link * ('w1, 'w2) sub -> 'w2 minimal
 let minimize (type w) (W _ : w world) (elt : w elt) : w minimal =
   Minimal (Link elt, refl_sub)
 
-type (+'w, 'a) v_weak = V_weak : 'w_ world * ('w_, 'a) v -> ('w, 'a) v_weak
-let v_weak (type w a) (w : w world) (v : (w, a) v) : (w, a) v_weak =
+type (+'w, 'a) v_weak = V_weak : 'w_ world * ('w_, 'a) v_strong -> ('w, 'a) v_weak
+let v_weak (type w a) (w : w world) (v : (w, a) v_strong) : (w, a) v_weak =
   V_weak (w, v)
 
 type ('w, 'a) unpack =
-    Unpack : 'w0 world * ('w0, 'w1) sub * ('w0, 'a) v -> ('w1, 'a) unpack
+    Unpack : 'w0 world * ('w0, 'w1) sub * ('w0, 'a) v_strong -> ('w1, 'a) unpack
 let unpack (type w a) (W _ : w world)
     (V_weak ((W _ as w), v) : (w, a) v_weak) : (w, a) unpack =
   Unpack (w, refl_sub, v)
 
 type (+'w, 'a) v_ref =
-  | V_ref : { mutable w : o world; mutable v : (o, 'a) v } -> ('w, 'a) v_ref
-let v_ref (type w a) (W _ as w : w world) (v : (w, a) v) : (w, a) v_ref =
+  | V_ref : { mutable w : o world; mutable v : (o, 'a) v_strong } -> ('w, 'a) v_ref
+let v_ref (type w a) (W _ as w : w world) (v : (w, a) v_strong) : (w, a) v_ref =
   V_ref {w; v}
 
 let v_set (type w' w) (V_ref r : (w,'a) v_ref)
-    (W _ as w : w' world) (_ : (w',w) sub) (v : (w,'a) v) =
+    (W _ as w : w' world) (_ : (w',w) sub) (v : (w,'a) v_strong) =
   r.w <- w;
   r.v <- v
 
