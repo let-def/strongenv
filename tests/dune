@@ -10,4 +10,4 @@
 (test
  (name test_hm_strong)
  (modules test_hm_strong)
- (libraries flat))
+ (libraries flat grenier.baltree))

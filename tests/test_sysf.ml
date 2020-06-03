@@ -78,7 +78,7 @@ let () =
         Te_LAM (b', transport_term tp' body)
   in
   let transport tp (type a) (ns : a Context.namespace)
-      (v : (_, a) v) : (_, a) v =
+      (v : (_, a) v_strong) : (_, a) v_strong =
     let source = Context.Transport.source tp in
     let target = Context.Transport.target tp in
     match ns with
