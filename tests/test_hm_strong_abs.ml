@@ -1,12 +1,11 @@
 type var = string
 
 module Source = struct
-
-  type lam =
+  type term =
     | Var of var
-    | Lam of var * lam
-    | App of lam * lam
-    | Let of var * lam * lam
+    | Lam of var * term
+    | App of term * term
+    | Let of var * term * term
 
   module Infix = struct
     let (!) x = Var x
@@ -62,6 +61,58 @@ module SemAst : sig
       | Value : Value.p t
 
     include World.ORDERED with type 'a t := 'a t
+  end
+
+  module Env : sig
+    type 'w level = ('w, ns_level) World.v
+    type 'w t
+    type ('w, 'a) fresh =
+        Fresh : ('w1, 'w2, 'a) Context.binder * 'w2 t -> ('w1, 'a) fresh
+    val make : unit -> (World.o, ns_level) fresh
+    val get : 'w t -> ('w, 'a) Context.ident -> ('w, 'a) World.v
+    val find : 'w t -> 'a Namespace.t -> var -> ('w, 'a) Context.ident option
+    val bind : 'w t -> 'a Namespace.t -> var -> ('w, 'a) World.v -> ('w, 'a) fresh
+    val bind' : 'w t -> 'a Namespace.t -> var -> ('w, 'a) World.v_strong -> ('w, 'a) fresh
+
+    val world : 'w t -> 'w World.t
+    val new_var : 'w t -> 'w typ
+
+    val enter_level : 'w t -> ('w, ns_level) fresh
+    val generalize_level : ('w1, 'w2, ns_level) Context.binder ->
+      unit * ('w2 typ -> 'w1 typ)
+
+    val commute_typ : ('w1, 'w2, ns_value) Context.binder ->
+      ('w2 typ -> 'w1 typ)
+
+    module type FRESH = sig
+      type w
+      val level : (World.o, w, ns_level) Context.binder
+      val env : w t
+    end
+    module Make() : FRESH
+  end
+
+  module Types :
+  sig
+    val unify : 'w typ -> 'w typ -> unit
+    val instance : 'w Env.t -> ('w, ns_value) World.v -> 'w typ
+    val arrow : 'w typ -> 'w typ -> 'w typ
+  end
+
+  module Terms :
+  sig
+    val mk : 'w typ -> 'w term_desc -> 'w term
+  end
+
+  module Print :
+  sig
+    val print_tvar : Format.formatter -> 'a ty_var -> unit
+    val print_tvars : Format.formatter -> 'a ty_var list -> unit
+    val print_level : Format.formatter -> ('a, 'b, ns_level) binder -> unit
+    val print_term : Format.formatter -> 'w term -> unit
+    val print_term_desc : Format.formatter -> 'w term_desc -> unit
+    val print_typ : Format.formatter -> 'w typ -> unit
+    val print_typ_lhs : Format.formatter -> 'w typ -> unit
   end
 
 end = struct
@@ -401,45 +452,6 @@ end = struct
               )
           end
 
-    let mk typ desc = { Syntax. typ; desc }
-
-    let begin_level world = function
-      | { Syntax.level_repr = Syntax.Generalized _ } ->
-        failwith "Cannot begin level from generalized level"
-      | { Syntax.level_repr = Syntax.Fresh f } ->
-        let level_repr = Syntax.Fresh {
-            gensym = f.gensym;
-            world;
-            variables = []
-          } in
-        { Syntax. level_repr }
-
-    let end_level = function
-      | { Syntax.level_repr = Syntax.Generalized _ } ->
-        failwith "Level already generalized"
-      | { Syntax.level_repr = Syntax.Fresh f } as level ->
-        let generalized =
-          List.fold_left (fun gen var ->
-              match repr var.Syntax.repr with
-              | Syntax.Ty_var var' when var' == var ->
-                if var'.level == level then
-                  (var' :: gen)
-                else (
-                  begin match var'.level.level_repr with
-                    | Syntax.Generalized _ ->
-                      failwith "Broken invariant: unification variable \
-                                in generalized level"
-                    | Syntax.Fresh f' ->
-                      f'.variables <- var' :: f'.variables;
-                  end;
-                  gen
-                )
-              | Syntax.Ty_arr _ | Syntax.Ty_var _ -> gen
-            ) [] f.variables
-        in
-        level.level_repr <- Syntax.Generalized generalized;
-        generalized
-
     let cast (type w1 w2) (w1: w1 World.t) (w2: w2 World.t) (t: w1 Syntax.typ)
       : w2 Syntax.typ =
       let World.Refl = World.unsafe_eq w1 in
@@ -472,24 +484,100 @@ end = struct
             end
       in
       aux typ
+
+    let arrow t1 t2 = Ty_arr (t1, t2)
+  end
+
+  module Terms =
+  struct
+    let mk typ desc = { Syntax. typ; desc }
+  end
+
+  module Print =
+  struct
+    let print_tvar ppf tvar =
+      match repr (Ty_var tvar) with
+      | Ty_arr _ -> assert false
+      | Ty_var tvar -> Format.fprintf ppf "#%d" tvar.id
+
+    let print_tvars ppf = function
+      | [] -> ()
+      | x :: xs ->
+        Format.fprintf ppf "@ @[<hov>%a%a@]."
+          print_tvar x
+          (fun ppf xs ->
+             List.iter (fun x -> Format.fprintf ppf "@ %a" print_tvar x) xs)
+          xs
+
+    let print_level ppf (Context.Binder (link, _id, level)) =
+      let World.Unpack (w0, _w0w1, level)
+        = World.unpack (World.source link) level in
+      let level = Namespace.Level.unpack w0 level in
+      match level.level_repr with
+      | Fresh _ ->
+        Format.fprintf ppf "<non-generalized level>"
+      | Generalized tvars ->
+        print_tvars ppf tvars
+
+    let rec print_term
+      : type w. Format.formatter -> w term -> unit
+      = fun ppf { typ; desc} ->
+        Format.fprintf ppf "@[(@[%a@]@ @[:@ %a@])@]"
+          print_term_desc desc print_typ typ
+
+    and print_term_desc
+      : type w. Format.formatter -> w term_desc -> unit
+      = fun ppf -> function
+        | Te_var (Ok {Context.Ident. namespace = _; stamp}) ->
+          Format.fprintf ppf "@@%d" (stamp :> int)
+        | Te_var (Error name) -> Format.fprintf ppf "%s@@unbound" name
+        | Te_lam (
+            Context.Binder (_, {Context.Ident. namespace = _; stamp}, _),
+            body
+          ) ->
+          Format.fprintf ppf
+            "@[\\@@%d@ -> %a@]" (stamp :> int) print_term body
+        | Te_app (tlm1, tlm2) ->
+          Format.fprintf ppf "@[<2>%a@ %a@]"
+            print_term tlm1 print_term tlm2
+        | Te_let {
+            level; bound; body;
+            binder = Context.Binder (_, {Context.Ident. namespace = _; stamp}, _);
+          } ->
+          Format.fprintf ppf "@[@[<2>let @@%d@ =%a@ %a@]@ in@;%a@]"
+            (stamp :> int)
+            print_level level
+            print_term bound print_term body
+
+    and print_typ
+      : type w. Format.formatter -> w typ -> unit
+      = fun ppf typ -> match repr typ with
+        | Ty_arr (lhs, rhs) ->
+          Format.fprintf ppf "%a@ ->@ %a" print_typ_lhs lhs print_typ rhs
+        | Ty_var tvar -> print_tvar ppf tvar
+
+    and print_typ_lhs
+      : type w. Format.formatter -> w typ -> unit
+      = fun ppf typ -> match repr typ with
+        | Ty_arr _ as typ -> Format.fprintf ppf "@[(%a)@]" print_typ typ
+        | Ty_var tvar -> print_tvar ppf tvar
   end
 end
 
-module Context = SemAst.Context
-module Namespace = SemAst.Namespace
+open SemAst
 
-let rec reconstruct : type w. w Env.t -> Source.lam -> w SemAst.term =
+let rec reconstruct : type w. w Env.t -> Source.term -> w SemAst.term =
   fun env -> function
     | Source.Var name ->
       let ident, typ = match Env.find env Namespace.Value name with
         | Some ident ->
           let typ = Env.get env ident in
-          (Ok ident, instance env typ)
+          (Ok ident, Types.instance env typ)
         | None ->
           prerr_endline ("Unbound variable " ^ name);
           (Error name, Env.new_var env)
       in
-      mk typ (SemAst.Te_var ident)
+      Terms.mk typ (SemAst.Te_var ident)
     | Source.Lam (var, lam) ->
       let tvar = Env.new_var env in
       let Env.Fresh (binder, env) =
@@ -498,15 +586,15 @@ let rec reconstruct : type w. w Env.t -> Source.lam -> w SemAst.term =
       in
       let lam = reconstruct env lam in
       let typ = Env.commute_typ binder lam.typ in
-      mk (SemAst.Ty_arr (tvar, typ)) (SemAst.Te_lam (binder, lam))
+      Terms.mk (Types.arrow tvar typ) (SemAst.Te_lam (binder, lam))
     | Source.App (lm1, lm2) ->
       let lm1 = reconstruct env lm1 in
       let lm2 = reconstruct env lm2 in
       let lhs = Env.new_var env in
       let rhs = Env.new_var env in
-      unify lm1.typ (SemAst.Ty_arr (lhs, rhs));
-      unify lm2.typ lhs;
-      mk rhs (SemAst.Te_app (lm1, lm2))
+      Types.unify lm1.typ (Types.arrow lhs rhs);
+      Types.unify lm2.typ lhs;
+      Terms.mk rhs (SemAst.Te_app (lm1, lm2))
     | Source.Let (var, lm1, lm2) ->
       let Env.Fresh (level, env') = Env.enter_level env in
       let bound = reconstruct env' lm1 in
@@ -516,81 +604,13 @@ let rec reconstruct : type w. w Env.t -> Source.lam -> w SemAst.term =
           (Namespace.Value.pack (Env.world env) (commute bound.typ))
       in
       let body = reconstruct env' lm2 in
-      mk (Env.commute_typ binder body.typ)
+      Terms.mk (Env.commute_typ binder body.typ)
         (SemAst.Te_let {level; bound; binder; body})
-
-  let print_tvar ppf tvar =
-    match repr (SemAst.Ty_var tvar) with
-    | SemAst.Ty_arr _ -> assert false
-    | SemAst.Ty_var tvar -> Format.fprintf ppf "#%d" tvar.SemAst.id
-
-  let print_tvars ppf = function
-    | [] -> ()
-    | x :: xs ->
-      Format.fprintf ppf "@ @[<hov>%a%a@]."
-        print_tvar x
-        (fun ppf xs ->
-           List.iter (fun x -> Format.fprintf ppf "@ %a" print_tvar x) xs)
-        xs
-
-  let print_level ppf (Context.Binder (link, _id, level)) =
-    let World.Unpack (w0, _w0w1, level)
-      = World.unpack (World.source link) level in
-    let level = Namespace.Level.unpack w0 level in
-    match level.level_repr with
-    | SemAst.Fresh _ ->
-      Format.fprintf ppf "<non-generalized level>"
-    | SemAst.Generalized tvars ->
-      print_tvars ppf tvars
-
-  let rec print_term
-    : type w. Format.formatter -> w SemAst.term -> unit
-    = fun ppf {SemAst. typ; desc} ->
-      Format.fprintf ppf "@[(@[%a@]@ @[:@ %a@])@]"
-        print_term_desc desc print_typ typ
-
-  and print_term_desc
-    : type w. Format.formatter -> w SemAst.term_desc -> unit
-    = fun ppf -> function
-      | SemAst.Te_var (Ok {Context.Ident. namespace = _; stamp}) ->
-        Format.fprintf ppf "@@%d" (stamp :> int)
-      | SemAst.Te_var (Error name) -> Format.fprintf ppf "%s@@unbound" name
-      | SemAst.Te_lam (
-          Context.Binder (_, {Context.Ident. namespace = _; stamp}, _),
-          body
-        ) ->
-        Format.fprintf ppf
-          "@[\\@@%d@ -> %a@]" (stamp :> int) print_term body
-      | SemAst.Te_app (tlm1, tlm2) ->
-        Format.fprintf ppf "@[<2>%a@ %a@]"
-          print_term tlm1 print_term tlm2
-      | SemAst.Te_let {
-          level; bound; body;
-          binder = Context.Binder (_, {Context.Ident. namespace = _; stamp}, _);
-        } ->
-        Format.fprintf ppf "@[@[<2>let @@%d@ =%a@ %a@]@ in@;%a@]"
-          (stamp :> int)
-          print_level level
-          print_term bound print_term body
-
-  and print_typ
-    : type w. Format.formatter -> w SemAst.typ -> unit
-    = fun ppf typ -> match repr typ with
-      | SemAst.Ty_arr (lhs, rhs) ->
-        Format.fprintf ppf "%a@ ->@ %a" print_typ_lhs lhs print_typ rhs
-      | SemAst.Ty_var tvar -> print_tvar ppf tvar
-
-  and print_typ_lhs
-    : type w. Format.formatter -> w SemAst.typ -> unit
-    = fun ppf typ -> match repr typ with
-      | SemAst.Ty_arr _ as typ -> Format.fprintf ppf "@[(%a)@]" print_typ typ
-      | SemAst.Ty_var tvar -> print_tvar ppf tvar
-end
 
 let () =
   let module Initial = Env.Make() in
   let tast =
-    Typed.reconstruct Initial.env
+    reconstruct Initial.env
       Source.Infix.(let- app = "app", "f" @-> "x" @-> !"f" % !"x" in app)
   in
-  Format.printf "%a\n%!" Typed.print_term tast
+  Format.printf "%a\n%!" Print.print_term tast

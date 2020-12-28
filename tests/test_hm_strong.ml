@@ -1,3 +1,21 @@
+(** Extension
+
+    On scoping representation:
+    - add type constructors, detect scope escape
+    - add level to every type expression, to implement other Remy's
+      optimizations
+      -> once we have type constructors, we can introduce non principal
+         constructs. Detect them
+    - implement Lionel Parreaux's subtyping as a fancy example
+    - add support for module systems
+    - for a cleaner presentation: abstract some invariants
+      -> if repr returns a Ty_var, it is not unified
+      -> a generalized level cannot appear in unification
+    - support for patterns,
+      -> GADT patterns, that introduce existentials and universals
+
+  *)
+
 type var = string
 
 module Source = struct
