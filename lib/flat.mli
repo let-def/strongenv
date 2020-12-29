@@ -1,10 +1,9 @@
 (* OK: sharing, recursion
    TODO: safe update
    TODO: lazy substitution
-   TODO: inference variable (~ delayed name-allocation)
 *)
 
-type 'a world = 'a World.world
+type 'w world = 'w World.world
 type ('w, 'a) v_strong = ('w, 'a) World.v_strong
 type (+'w, 'a) v = ('w, 'a) World.v
 
@@ -34,7 +33,7 @@ module type CONTEXT = sig
         Binder : ('w2, 'v2) transport * ('v1, 'v2, 'ns) binder
           -> ('v1, 'w2, 'ns) t_binder
 
-    val ident : ('v, 'w) transport -> ('v, 'a) ident -> ('w, 'a) ident
+    val ident : ('w, 'v) transport -> ('w, 'a) ident -> ('v, 'a) ident
 
     val binder : ('w1, 'w2, 'ns) binder -> ('w1, 'v1) transport ->
       ('v1, 'w2, 'ns) t_binder

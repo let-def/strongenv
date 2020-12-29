@@ -7,13 +7,14 @@
       -> once we have type constructors, we can introduce non principal
          constructs. Detect them
     - implement Lionel Parreaux's subtyping as a fancy example
-    - add support for module systems
     - for a cleaner presentation: abstract some invariants
       -> if repr returns a Ty_var, it is not unified
       -> a generalized level cannot appear in unification
     - support for patterns,
       -> GADT patterns, that introduce existentials and universals
 
+    Ko:
+    - add support for module systems. Module system is orthogonal to strongenv.
   *)
 
 type var = string

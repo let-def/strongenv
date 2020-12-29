@@ -4,7 +4,7 @@ type o = |
 type 'w world = W : int -> o world [@@ocaml.unboxed]
 type 'w t = 'w world
 type +'w elt = int
-type (+'w, 'a) v_strong = 'a
+type ('w, 'a) v_strong = 'a
 
 let empty : o world = W 0
 
