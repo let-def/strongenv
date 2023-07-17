@@ -211,7 +211,7 @@ struct
     let (module Sub) = World.sub link in
     let Refl = Sub.eq in
     let v = (v : (w1, a) v :> (w2, a) v) in
-    let bindings = Dbseq.add
+    let bindings = Dbseq.cons
         (Binding (id, v))
         (env.bindings : w1 binding Dbseq.t :> w2 binding Dbseq.t)
     in
