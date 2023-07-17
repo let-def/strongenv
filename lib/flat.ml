@@ -9,8 +9,8 @@ module type CONTEXT = sig
   module Ident : sig
     type (+'w, 'a) t = private
       { namespace : 'a namespace; stamp : 'w World.elt }
-    val compare : ('w, 'a) t -> ('w, 'b) t -> ('a, 'b) Type.order
-    val retract : 'w1 world -> 'w2 world -> ('w1, 'w2) World.sub ->
+    val compare : ('w, 'a) t -> ('w, 'b) t -> ('a, 'b) Witness.order
+    val retract : 'w1 world -> 'w2 world -> ('w1, 'w2) Witness.sub ->
       ('w2, 'a) t -> ('w1, 'a) t option
   end
   type ('w, 'a) ident = ('w, 'a) Ident.t
@@ -33,7 +33,7 @@ module type CONTEXT = sig
     val binder : ('w1, 'w2, 'ns) binder -> ('w1, 'v1) transport ->
       ('v1, 'w2, 'ns) t_binder
 
-    val sub : ('w1, 'w2) Type.sub ->
+    val sub : ('w1, 'w2) Witness.sub ->
       'w1 world -> 'w2 world -> ('w1, 'w2) transport
     val compose :
       ('w1, 'w2) transport -> ('w2, 'w3) transport -> ('w1, 'w3) transport
@@ -62,7 +62,7 @@ module type NEW_CONTEXT = sig
   val configure : configuration -> unit
 end
 
-module Make_context (Namespace : World.ORDERED) :
+module Make_context (Namespace : Witness.ORDERED) :
   NEW_CONTEXT with type 'a namespace = 'a Namespace.t =
 struct
   type 'a namespace = 'a Namespace.t
@@ -92,22 +92,22 @@ struct
   (* Names *)
   module Ident = struct
     type (+'w, 'a) t = { namespace : 'a namespace; stamp : 'w World.elt }
-    let compare (type a b) (a : ('w, a) t) (b : ('w, b) t) : (a, b) World.order =
+    let compare (type a b) (a : ('w, a) t) (b : ('w, b) t) : (a, b) Witness.order =
       match Namespace.compare a.namespace b.namespace with
       | Eq ->
-        World.order_compare (
+        Witness.order_compare (
           Int.compare
             (a.stamp : _ World.elt :> int)
             (b.stamp : _ World.elt :> int)
         )
       | (Lt | Gt) as a -> a
 
-    let coerce_stamp (type w1 w2) ((module Sub) : (w1, w2) World.sub) stamp =
+    let coerce_stamp (type w1 w2) ((module Sub) : (w1, w2) Witness.sub) stamp =
       let Refl = Sub.eq in
       (stamp : w1 World.elt :> w2 World.elt )
 
     let retract (type w1 w2) (w1 : w1 world) (w2 : w2 world)
-        (w1w2 : (w1, w2) World.sub)
+        (w1w2 : (w1, w2) Witness.sub)
         ({namespace; stamp} : (w2, 'a) t) : (w1, 'a) t option =
       (* Faster implementation: stamp is not going to change,
          so just compare stamp and world, then use unsafe_eq to coerce *)
@@ -137,7 +137,7 @@ struct
     val binder : ('w1, 'w2, 'ns) binder -> ('w1, 'v1) transport ->
       ('v1, 'w2, 'ns) t_binder
 
-    val sub : ('w1, 'w2) World.sub -> 'w1 world -> 'w2 world -> ('w1, 'w2) transport
+    val sub : ('w1, 'w2) Witness.sub -> 'w1 world -> 'w2 world -> ('w1, 'w2) transport
     val compose :
       ('w1, 'w2) transport -> ('w2, 'w3) transport -> ('w1, 'w3) transport
   end = struct
@@ -155,7 +155,7 @@ struct
       {id with stamp = World.Transport.elt id.stamp t.world}
 
     let sub (type w1 w2)
-        (s: (w1, w2) World.sub) (w1 : w1 world) (w2 : w2 world)
+        (s: (w1, w2) Witness.sub) (w1 : w1 world) (w2 : w2 world)
       : (w1, w2) transport = mk (World.Transport.sub s) w1 w2
 
     let compose t1 t2 =
@@ -228,7 +228,7 @@ struct
   let bind' env namespace v =
     bind env namespace (World.v env.world v)
 
-  let coerce_ident (type w1 w2 a) ((module Sub) : (w1, w2) World.sub)
+  let coerce_ident (type w1 w2 a) ((module Sub) : (w1, w2) Witness.sub)
       (id : (w1, a) ident) : (w2, a) ident =
     let Refl = Sub.eq in
     (id : (w1, a) ident :> (w2, a) ident)

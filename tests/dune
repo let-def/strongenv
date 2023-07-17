@@ -1,7 +1,7 @@
 (test
  (name test_sysf)
  (modules test_sysf)
- (libraries flat))
+ (libraries strongenv))
 
 (test
  (name test_hm_base)
@@ -10,9 +10,9 @@
 (test
  (name test_hm_strong)
  (modules test_hm_strong)
- (libraries flat grenier.baltree))
+ (libraries strongenv grenier.baltree grenier.dbseq))
 
 (test
  (name test_hm_strong_abs)
  (modules test_hm_strong_abs)
- (libraries flat grenier.baltree))
+ (libraries strongenv grenier.baltree grenier.dbseq))

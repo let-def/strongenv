@@ -1,13 +1,8 @@
 (library
- (name world)
- (wrapped false)
- (modules type world))
-
-(library
- (name flat)
- (modules flat)
- (wrapped false)
- (libraries world grenier.dbseq))
+ (name strongenv)
+ (public_name strongenv)
+ (modules witness world flat)
+ (libraries grenier.dbseq))
 
 ;(library
 ; (name modular)

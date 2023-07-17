@@ -1,4 +1,4 @@
-include module type of struct include Type end
+open Witness
 
 type o
 type 'w world

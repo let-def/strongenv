@@ -1,4 +1,4 @@
-include Type
+open Witness
 
 type o = |
 type 'w world = W : int -> o world [@@ocaml.unboxed]

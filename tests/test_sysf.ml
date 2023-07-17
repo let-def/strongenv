@@ -1,3 +1,4 @@
+open Strongenv
 open Flat
 
 module rec Syntax : sig
@@ -30,7 +31,7 @@ and Namespace : sig
     | Type : Type.p t
     | Term : Term.p t
 
-  include World.ORDERED with type 'a t := 'a t
+  include Witness.ORDERED with type 'a t := 'a t
 end = struct
   module Type = World.Indexed0(struct type 'a t = 'a Syntax.typ end)
   module Term = World.Indexed0(struct type 'a t = 'a Syntax.term end)
@@ -38,7 +39,7 @@ end = struct
     | Type : Type.p t
     | Term : Term.p t
 
-  let compare (type a b) (a : a t) (b : b t) : (a, b) World.order =
+  let compare (type a b) (a : a t) (b : b t) : (a, b) Witness.order =
     match a, b with
     | Type , Type -> Eq
     | Term , Term -> Eq
@@ -99,8 +100,8 @@ let id_equal id1 id2 =
 type ('w, 'a) ident = ('w, 'a) Context.ident
 
 let retract_equiv (type w1 w2 w1' w2')
-    (w1 : w1 world) (w1' : w1' world) (s1 : (w1, w1') World.sub)
-    (w2 : w2 world) (w2' : w2' world) (s2 : (w2, w2') World.sub)
+    (w1 : w1 world) (w1' : w1' world) (s1 : (w1, w1') Witness.sub)
+    (w2 : w2 world) (w2' : w2' world) (s2 : (w2, w2') Witness.sub)
     (equiv : ((w1', 'a) ident * (w2', 'a) ident) list)
   : ((w1, 'a) ident * (w2, 'a) ident) list
   =
@@ -114,7 +115,7 @@ let retract_equiv (type w1 w2 w1' w2')
     ) equiv
 
 let extend_equiv (type w1 w2 w1' w2')
-    (s1 : (w1, w1') World.sub) (s2 : (w2, w2') World.sub)
+    (s1 : (w1, w1') Witness.sub) (s2 : (w2, w2') Witness.sub)
     (equiv : ((w1, 'a) ident * (w2, 'a) ident) list)
   : ((w1', 'a) ident * (w2', 'a) ident) list
   =

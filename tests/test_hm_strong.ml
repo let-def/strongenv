@@ -1,5 +1,4 @@
 (** Extension
-
     On scoping representation:
     - add type constructors, detect scope escape
     - add level to every type expression, to implement other Remy's
@@ -16,6 +15,8 @@
     Ko:
     - add support for module systems. Module system is orthogonal to strongenv.
   *)
+
+open Strongenv
 
 type var = string
 
@@ -87,7 +88,7 @@ and Namespace : sig
     | Level : Level.p t
     | Value : Value.p t
 
-  include World.ORDERED with type 'a t := 'a t
+  include Witness.ORDERED with type 'a t := 'a t
 end = struct
   module Level = World.Indexed0(struct type 'a t = 'a Syntax.level end)
   module Value = World.Indexed0(struct type 'a t = 'a Syntax.typ end)
@@ -95,7 +96,7 @@ end = struct
     | Level : Level.p t
     | Value : Value.p t
 
-  let compare (type a b) (a : a t) (b : b t) : (a, b) World.order =
+  let compare (type a b) (a : a t) (b : b t) : (a, b) Witness.order =
     match a, b with
     | Level , Level -> Eq
     | Value , Value -> Eq
@@ -166,20 +167,20 @@ end = struct
     let empty = Bt2.leaf
 
     let compare (type a b) (ns: a Namespace.t) var (ns': b Namespace.t) var'
-      : (a, b) Type.order =
+      : (a, b) Witness.order =
       match Namespace.compare ns ns' with
-      | Type.Lt -> Type.Lt
-      | Type.Gt -> Type.Gt
-      | Type.Eq -> Type.order_compare (String.compare var var')
+      | Witness.Lt -> Witness.Lt
+      | Witness.Gt -> Witness.Gt
+      | Witness.Eq -> Witness.order_compare (String.compare var var')
 
     let find (type a) (ns : a Namespace.t) var =
       let rec aux : 'w t -> ('w, a) Context.ident option = function
         | Bt2.Leaf -> None
         | Bt2.Node (_, l, Entry ident, var', r) ->
           begin match compare ns var ident.namespace var' with
-            | Type.Lt -> aux l
-            | Type.Gt -> aux r
-            | Type.Eq -> Some ident
+            | Witness.Lt -> aux l
+            | Witness.Gt -> aux r
+            | Witness.Eq -> Some ident
           end
       in
       aux
@@ -189,9 +190,9 @@ end = struct
         | Bt2.Leaf -> Bt2.node Bt2.leaf (Entry ident) var Bt2.leaf
         | Bt2.Node (_, l, Entry ident', var', r) ->
           begin match compare ident.namespace var ident'.namespace var' with
-            | Type.Lt -> aux l
-            | Type.Gt -> aux r
-            | Type.Eq -> Bt2.node l (Entry ident) var' r
+            | Witness.Lt -> aux l
+            | Witness.Gt -> aux r
+            | Witness.Eq -> Bt2.node l (Entry ident) var' r
           end
       in
       aux
@@ -251,12 +252,12 @@ end = struct
   let world t = Context.world t.context
 
   let get_level (type w) (t : w t) : w Syntax.level =
-    let World.Refl = World.unsafe_eq (Context.world t.context) in
+    let Witness.Refl = World.unsafe_eq (Context.world t.context) in
     t.level
 
   let pack_level (type w)
       (w : w World.t) (l : w Syntax.level) : World.o Syntax.level =
-    let World.Refl = World.unsafe_eq w in l
+    let Witness.Refl = World.unsafe_eq w in l
 
   let bind t ns var v =
     let Context.Fresh (binder, context) = Context.bind t.context ns v in
@@ -300,8 +301,8 @@ end = struct
 
   let commute_typ (type w1 w2)
       (Context.Binder (link, _, _) : (w1, w2, _) Context.binder) =
-    let World.Refl = World.unsafe_eq (World.source link) in
-    let World.Refl = World.unsafe_eq (World.target link) in
+    let Witness.Refl = World.unsafe_eq (World.source link) in
+    let Witness.Refl = World.unsafe_eq (World.target link) in
     (fun (ty : w2 Syntax.typ) -> (ty : w1 Syntax.typ))
 
   let generalize_level (type w1 w2)
@@ -404,8 +405,8 @@ module Typed = struct
 
   let cast (type w1 w2) (w1: w1 World.t) (w2: w2 World.t) (t: w1 Syntax.typ)
     : w2 Syntax.typ =
-    let World.Refl = World.unsafe_eq w1 in
-    let World.Refl = World.unsafe_eq w2 in
+    let Witness.Refl = World.unsafe_eq w1 in
+    let Witness.Refl = World.unsafe_eq w2 in
     t
 
   let instance (type w2)

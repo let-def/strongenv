@@ -14,8 +14,8 @@ module type CONTEXT = sig
   module Ident : sig
     type (+'w, 'a) t = private
       { namespace : 'a namespace; stamp : 'w World.elt }
-    val compare : ('w, 'a) t -> ('w, 'b) t -> ('a, 'b) Type.order
-    val retract : 'w1 world -> 'w2 world -> ('w1, 'w2) World.sub ->
+    val compare : ('w, 'a) t -> ('w, 'b) t -> ('a, 'b) Witness.order
+    val retract : 'w1 world -> 'w2 world -> ('w1, 'w2) Witness.sub ->
       ('w2, 'a) t -> ('w1, 'a) t option
   end
   type ('w, 'a) ident = ('w, 'a) Ident.t
@@ -38,7 +38,7 @@ module type CONTEXT = sig
     val binder : ('w1, 'w2, 'ns) binder -> ('w1, 'v1) transport ->
       ('v1, 'w2, 'ns) t_binder
 
-    val sub : ('w1, 'w2) Type.sub ->
+    val sub : ('w1, 'w2) Witness.sub ->
       'w1 world -> 'w2 world -> ('w1, 'w2) transport
     val compose :
       ('w1, 'w2) transport -> ('w2, 'w3) transport -> ('w1, 'w3) transport
@@ -67,5 +67,5 @@ module type NEW_CONTEXT = sig
   val configure : configuration -> unit
 end
 
-module Make_context (Namespace : Type.ORDERED) :
+module Make_context (Namespace : Witness.ORDERED) :
   NEW_CONTEXT with type 'a namespace = 'a Namespace.t
