@@ -1,7 +1,7 @@
 (library
  (name strongenv)
  (public_name strongenv)
- (modules witness world flat)
+ (modules strongenv witness world flat)
  (libraries grenier.dbseq))
 
 ;(library
