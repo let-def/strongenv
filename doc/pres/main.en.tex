@@ -1,0 +1,409 @@
+% Latex template: mahmoud.s.fahmy@students.kasralainy.edu.eg
+% For more details: https://www.sharelatex.com/learn/Beamer
+
+\documentclass{beamer}          % Document class
+
+\usepackage{babel}         % Set language
+\usepackage{verbatim}
+\usepackage{listings}
+\usepackage{sourcecodepro}
+
+\mode<presentation>            % Set options
+{
+  \usetheme{default}          % Set theme
+  \usecolortheme{default}         % Set colors
+  \usefonttheme{default}          % Set font theme
+  \setbeamertemplate{caption}[numbered]  % Set caption to be numbered
+  \setbeamertemplate{navigation symbols}{}
+}
+
+% Uncomment this to have the outline at the beginning of each section highlighted.
+%\AtBeginSection[]
+%{
+%  \begin{frame}{Outline}
+%  \tableofcontents[currentsection]
+%  \end{frame}
+%}
+
+\usepackage{graphicx}          % For including figures
+\usepackage{booktabs}          % For table rules
+\usepackage{hyperref}          % For cross-referencing
+
+\title{Strongenv}  % Presentation title
+\subtitle{Well-scoped binding trees in OCaml}
+\author{Frédéric Bour}                % Presentation author
+\institute{Tarides, Inria}          % Author affiliation
+\date{July 28, 2023 \\ Nagoya}                  % Today's date
+
+\begin{document}
+
+% Title page
+% This page includes the informations defined earlier including title, author/s, affiliation/s and the date
+\begin{frame}
+  \titlepage
+\end{frame}
+
+% Outline
+% This page includes the outline (Table of content) of the presentation. All sections and subsections will appear in the outline by default.
+\begin{frame}{Plan}
+  \tableofcontents
+\end{frame}
+
+\AtBeginSection[]{
+  \begin{frame}
+  \vfill
+  \centering
+  \begin{beamercolorbox}[sep=8pt,center,shadow=true,rounded=true]{title}
+    \usebeamerfont{title}\insertsectionhead\par%
+  \end{beamercolorbox}
+  \vfill
+  \end{frame}
+}
+
+\section{Type-level tricks}
+
+\lstset{language=caml, basicstyle=\ttfamily, basewidth=0.5em, morekeywords={module,sig,struct,val}}
+
+\begin{frame}[fragile]{\#1/4: Singleton types for witnessing properties}
+
+\begin{lstlisting}
+module M : sig
+  type 'a t
+  ...
+end = struct
+  type 'a t = T : unit t
+  ...
+end
+\end{lstlisting}
+
+  \begin{itemize}
+    \item External view: abstract type, nothing known about the parameter
+    \item Internal view: parameter can only be \lstinline{unit}
+    \item Trick: selectively reveal information about \lstinline{'a} to enforce properties
+  \end{itemize}
+
+\end{frame}
+
+\begin{frame}[fragile]{Example: reflecting string equality at the type level}
+\begin{lstlisting}
+type ('a, 'b) eq = Refl : ('a, 'a) t
+
+module Typed_string : sig
+  type 'a t
+  type a_t = A : 'a t -> a_t
+
+  val inj : string -> a_t
+  val prj : 'a t -> string
+
+  val equal : 'a t -> 'b t ->
+              ('a, 'b) eq option
+end
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]{Implementation}
+\begin{lstlisting}
+type 'a t = T : string -> unit t
+  [@@ocaml.unboxed]
+
+...
+
+let equal (type a b) (A a : a t) (B b : b t)
+  : (a, b) eq option =
+  if String.equal a b then
+    Some Refl
+  else
+    None
+\end{lstlisting}
+
+  \begin{itemize}
+    \item User will only see existential variables for string parameters
+    \item Only information that can be recovered: two existentials are equal if
+          two strings are the same
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{\#2/4: (Discrete) sub-typing witnesses (broken)}
+  Ideally:
+\begin{lstlisting}
+module type SUB = sig
+  type t
+  type s = private t
+  (* s is a sub-type of t *)
+end
+
+type ('s, 't) sub = (module SUB with type t = 't
+                                 and type s = 's)
+                                          ^
+\end{lstlisting}
+  Not working because only an abstract type can be turned into a first-class parameter.
+\end{frame}
+
+\begin{frame}[fragile]{\#2/4: (Discrete) sub-typing witnesses (fixed)}
+Work-around:
+\begin{lstlisting}
+module type SUB = sig
+  type t
+  type s' = private t (* s' is a sub-type of t *)
+  type s
+  val eq : (s, s') eq
+end
+
+type ('s, 't) sub = (module SUB with type t = 't
+                                 and type s = 's)
+\end{lstlisting}
+
+  Use an indirection and expose the equality separately.
+\end{frame}
+
+\begin{frame}[fragile]{Eliminating sub-typing witnesses}
+
+\begin{lstlisting}
+let trans_sub (type a b c)
+    ((module AB) : (a, b) sub)
+    ((module BC) : (b, c) sub) : (a, c) sub
+  =
+  let Refl = AB.eq in
+  let Refl = BC.eq in
+  let module Sub = struct
+    type t = BC.t
+    type u = AB.u
+    type s = AB.s
+    let eq : (s, u) eq = Refl
+  end in
+  ((module Sub) : (a, c) sub)
+\end{lstlisting}
+
+A bit heavy but doable while waiting for modular (ex|im)plicits :).
+(See ``First-Class Subtypes'' by Yallop and Dolan)
+\end{frame}
+
+\begin{frame}[fragile]{Example: String prefixes}
+
+\begin{lstlisting}
+module Typed_string : sig
+  ...
+  val is_prefix : 'a t -> 'b t -> ('a, 'b) sub option
+end
+
+val refl_sub : ('a, 'a) sub
+
+let is_prefix (type a b) (A a) (B b)
+  : (a, b) sub option =
+  if String.is_prefix a b then
+    Some refl_sub
+  else
+    None
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}{Goal}
+  We can reflect at the type level:
+  \begin{itemize}
+    \item an equivalence on values using equality witnesses
+    \item a partial-order on values using sub-typing witnesses
+  \end{itemize}
+
+  ~ \\
+
+  We will use this to offer a reasonably lightweight encoding of
+  typing contexts ordered by inclusion.
+\end{frame}
+
+\begin{frame}[fragile]{Goal}
+  \begin{lstlisting}
+  val e1 : 'w1 env
+  val e2 : 'w2 env
+  \end{lstlisting}
+  $$
+  \texttt{'w1} \subseteq \texttt{'w2} \implies dom(\texttt{e1}) \subseteq dom(\texttt{e2})
+  $$
+
+  \texttt{'w} stands for ``world'', representing a set of names at the type-level.
+
+  ~ \\
+
+  (loosely) Following Nicolas Pouillard's PhD thesis:
+
+  {\em ``Namely, Painless: A unifying approach to safe programming with first-order syntax with binders''}.
+\end{frame}
+
+\begin{frame}[fragile]{\#3/4: Total-ordering for heterogeneous maps}
+\begin{lstlisting}
+type ('a, 'b) order =
+  | Lt
+  | Eq : ('a, 'a) order
+  | Gt
+
+module type ORDERED = sig
+  type 'a t
+  val compare : 'a t -> 'b t -> ('a, 'b) order
+end
+\end{lstlisting}
+
+Generalization of \lstinline{Map/Map.OrderedType} to heterogeneous situations.
+\end{frame}
+
+\begin{frame}[fragile]{\#4/4: Higher-kinded ``world'' polymorphism}
+
+Like {\em Lightweight higher-kinded polymorphism} by Yallop and White, but restricted to {\em worlds}.
+\begin{lstlisting}
+module type INDEXED = sig
+  type 'w t
+  type p
+  val pack : 'w world -> 'w t -> ('w, p) v_strong
+  val unpack : 'w world -> ('w, p) v_strong -> 'w t
+end
+\end{lstlisting}
+
+We have some type \lstinline{'w t} representing values with a property holding in world
+\lstinline{'w}. For instance, a term well-scoped in \lstinline{'w}. \\
+\pause ~ \\
+A world polymorphic definition:
+\only<-3>{\lstinline{forall t, w t list -> w t map} is not valid OCaml}
+\only<4>{\lstinline{('w, 'p) v_strong list -> ('w, 'p) v_strong map}}
+\pause
+Work-around: an isomorphism $\texttt{'w t} \Leftrightarrow \texttt{('w, p) v\_strong}$. \\
+\end{frame}
+
+\begin{frame}{Summary}
+  \begin{itemize}
+    \item With {\em sub-typing} we can reflect inclusion of environments.
+    \item With {\em heterogeneous maps}, we can represent context with multiple kind
+          of binders
+    \item With {\em world polymorphism}, we turn this into an efficient and
+          generic toolkit enforcing ``world respecting'' usage.
+  \end{itemize}
+\end{frame}
+
+\section{System-F terms}
+
+\begin{frame}{Example: System-F AST}
+  Full code available in file {\tt tests/test\_sysf.ml}
+  \footnote{\url{%
+https://gitea.lakaban.net/def/strongenv/src/branch/master/tests/test_sysf.ml}}.
+
+\end{frame}
+
+\begin{frame}[fragile]{System-F AST}
+
+\begin{lstlisting}
+type 'w typ =
+  | Ty_var of ('w, ns_typ) ident
+  | Ty_arr of 'w typ * 'w typ
+
+  | Ty_forall : ('w1, 'w2, ns_typ) binder * 'w2 typ
+                -> 'w1 typ
+\end{lstlisting}
+
+An \lstinline{'w typ} is a System-F type that is well-scoped in ``world'' \lstinline{'w}.
+\\ ~ \\
+\pause
+\textbf{Concepts}:
+\begin{itemize}
+  \setlength{\itemindent}{1em}
+  \item[World] Type-level reflection of a set of names
+  \item[Namespace] The different kinds of context binders {\small (\texttt{ns\_typ}, \texttt{ns\_term})}
+  \item[Ident] \lstinline{('w, ns_typ) ident} is an identifier referring to a {\em type}
+        in world \lstinline{'w}
+  \item[Binder] \lstinline{('w1, 'w2, ns_typ) binder} extends world \lstinline{'w1}
+        to world \lstinline{'w2}, binding an identifier to a type
+\end{itemize}
+
+\end{frame}
+
+\begin{frame}[fragile]{System-F AST}
+
+\begin{lstlisting}
+type 'w typ =
+  | Ty_var of ('w, ns_typ) ident
+  | Ty_arr of 'w typ * 'w typ
+
+  | Ty_forall : ('w1, 'w2, ns_typ) binder * 'w2 typ
+                -> 'w1 typ
+
+type 'w term =
+  | Te_var of ('w, ns_term) ident
+  | Te_app of 'w term * 'w term
+  | Te_APP of 'w term * 'w typ
+
+  | Te_lam : ('w1, 'w2, ns_term) binder * 'w2 term
+             -> 'w1 term
+  | Te_LAM : ('w1, 'w2, ns_typ) binder * 'w2 term
+             -> 'w1 term
+\end{lstlisting}
+
+\end{frame}
+
+\begin{frame}[fragile]{Boilerplate (1/2): Namespace definition}
+
+\begin{lstlisting}[xleftmargin=-0.2in]
+... and Namespace : sig
+
+  module Type : World.INDEXED with type 'w t = 'w Syntax.typ
+  module Term : World.INDEXED with type 'w t = 'w Syntax.term
+
+type 'a t =
+  | Type : Type.p t
+  | Term : Term.p t
+
+include Witness.ORDERED with type 'a t := 'a t
+
+end
+\end{lstlisting}
+
+\begin{itemize}
+  \item Construct the isomorphisms for world polymorphism and ordering for heterogeneous map.
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{Boilerplate (2/2): Namespace implementation}
+
+\begin{lstlisting}[xleftmargin=-0.2in]
+struct
+  module Type =
+    World.Indexed0(struct type 'a t = 'a Syntax.typ end)
+  module Term =
+    World.Indexed0(struct type 'a t = 'a Syntax.term end)
+
+  type 'a t =
+    | Type : Type.p t
+    | Term : Term.p t
+
+  let compare (type a b) (a : a t) (b : b t)
+    : (a, b) Witness.order =
+    match a, b with
+    | Type , Type -> Eq
+    | Term , Term -> Eq
+    | Type , Term -> Lt
+    | Term , Type -> Gt
+end
+\end{lstlisting}
+
+\end{frame}
+
+\begin{frame}[fragile]{Instantiation}
+
+\begin{lstlisting}
+...
+
+and Context : NEW_CONTEXT
+              with type 'a namespace = 'a Namespace.t =
+  Make_context(Namespace)
+\end{lstlisting}
+
+Finally, we can instantiate the library over our syntax and namespaces. \\~\\
+
+Note: everything is mutually recursive. The trees use idents and binders provided by the context, which uses the namespace, which associates trees to binding category, \ldots
+
+\end{frame}
+
+\section{Hindley-milner inference}
+
+\begin{frame}{That's all, thanks!}
+
+  Thanks for your attention.
+
+\end{frame}
+
+\end{document}
