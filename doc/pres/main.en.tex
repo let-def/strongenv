@@ -7,6 +7,7 @@
 \usepackage{verbatim}
 \usepackage{listings}
 \usepackage{sourcecodepro}
+\usepackage{xeCJK}
 
 \mode<presentation>            % Set options
 {
@@ -280,8 +281,7 @@ Work-around: an isomorphism $\texttt{'w t} \Leftrightarrow \texttt{('w, p) v\_st
 
 \begin{frame}{Example: System-F AST}
   Full code available in file {\tt tests/test\_sysf.ml}
-  \footnote{\url{%
-https://gitea.lakaban.net/def/strongenv/src/branch/master/tests/test_sysf.ml}}.
+  \footnote{\url{https://gitea.lakaban.net/def/strongenv/src/branch/master/tests/test_sysf.ml}}.
 
 \end{frame}
 
@@ -297,7 +297,7 @@ type 'w typ =
 \end{lstlisting}
 
 An \lstinline{'w typ} is a System-F type that is well-scoped in ``world'' \lstinline{'w}.
-\\ ~ \\
+~\\
 \pause
 \textbf{Concepts}:
 \begin{itemize}
@@ -307,7 +307,7 @@ An \lstinline{'w typ} is a System-F type that is well-scoped in ``world'' \lstin
   \item[Ident] \lstinline{('w, ns_typ) ident} is an identifier referring to a {\em type}
         in world \lstinline{'w}
   \item[Binder] \lstinline{('w1, 'w2, ns_typ) binder} extends world \lstinline{'w1}
-        to world \lstinline{'w2}, binding an identifier to a type
+        to world \lstinline{'w2}, binding an identifier to a type (dynamically, it's a pair of the identifier and the type)
 \end{itemize}
 
 \end{frame}
@@ -387,8 +387,7 @@ end
 \begin{lstlisting}
 ...
 
-and Context : NEW_CONTEXT
-              with type 'a namespace = 'a Namespace.t =
+and Context : CONTEXT with type 'a namespace = 'a Namespace.t =
   Make_context(Namespace)
 \end{lstlisting}
 
@@ -398,11 +397,159 @@ Note: everything is mutually recursive. The trees use idents and binders provide
 
 \end{frame}
 
-\section{Hindley-milner inference}
+\section{Hindley-Milner inference}
+
+\begin{frame}{Example: HM inference proof-of-concept}
+  Not completely a toy:
+  \begin{itemize}
+    \item partial use of Remy's level to speed-up processing,
+    \item typed scoping also (tries to \ldots) enforces correct use of levels.
+  \end{itemize}
+
+  ~\\
+
+  \pause
+  Full code available in files:
+  \begin{itemize}
+    \item {\tt tests/test\_hm\_base.ml}
+          \footnote{~\href{https://gitea.lakaban.net/def/strongenv/src/branch/master/tests/test_hm_base.ml}{gitea.lakaban.net/def/strongenv/src/branch/master/tests/test\_hm\_base.ml}} \\
+          Reference implementation using plain AST. \\
+          Nice to see the encoding of levels first, without enforcing scoping.
+
+     \pause
+    \item {\tt tests/test\_hm\_strong.ml}
+\footnote{~\href{https://gitea.lakaban.net/def/strongenv/src/branch/master/tests/test_hm_strong.ml}{gitea.lakaban.net/def/strongenv/src/branch/master/tests/test\_hm\_strong.ml}} \\
+          Well-scoped implementation using Strongenv.
+  \end{itemize}
+
+\end{frame}
+
+\begin{frame}[fragile]{Explicit level manipulation}
+
+\begin{lstlisting}
+type level
+type ty_var
+
+val initial_level : unit -> level
+
+val new_var : level -> ty_var
+
+val begin_level : level -> level
+val end_level : level -> ty_var list (*generalized*)
+\end{lstlisting}
+
+\end{frame}
+
+\begin{frame}[fragile]{Level representation}
+
+\begin{lstlisting}
+type level = { mutable level_repr: level_repr }
+
+and level_repr =
+  | Fresh of {
+      gensym: int ref;
+      depth: int;
+      mutable variables: ty_var list;
+    }
+  | Generalized of ty_var list;
+
+and ty_var = {
+  id: int;
+  mutable level: level;
+  mutable repr: typ;
+}
+\end{lstlisting}
+
+\end{frame}
+
+\begin{frame}[fragile]{Level representation: scoped version}
+
+\begin{lstlisting}
+type 'w level = { mutable level_repr : 'w level_repr; }
+
+and 'w level_repr =
+  | Fresh of {
+      gensym: int ref;
+      world: 'w World.t;
+      mutable variables : 'w ty_var list;
+    }
+  | Generalized of 'w ty_var list
+
+and 'w ty_var = {
+  id: int;
+  mutable level: 'w level;
+  mutable repr: 'w typ;
+}
+\end{lstlisting}
+
+\end{frame}
+
+\begin{frame}[fragile]{Scoped version}
+
+  Two namespaces:
+  \begin{itemize}
+    \setlength{\itemindent}{3em}
+    \item[ns\_value] to give types to program variables, with proper scoping
+    \item[ns\_level] to represent a set of type variables
+  \end{itemize}
+  \pause ~\\
+  During inference, the set of type variables is being discovered and can grow: not suitable for the static structure of the ``well-scoped AST''. \\
+  However, level placement is fixed: store levels in the AST.
+
+\pause ~\\
+\begin{lstlisting}
+type 'w term =
+  ...
+  | Te_let : {
+      level: ('w, 'wl, ns_level) binder;
+      bound: 'wl term;
+      binder: ('w, 'wb, ns_value) binder;
+      body: 'wb term;
+    } -> 'w term_desc
+\end{lstlisting}
+
+\end{frame}
+
+\begin{frame}[fragile]{Interaction of pure and impure code}
+
+  We are mixing pure and impure constructions:
+  \begin{itemize}
+    \item immutable environments and ASTs
+    \item growing levels, moving type variables
+  \end{itemize}
+
+  \pause ~\
+
+  Changes and invariants are monotonous:
+  \begin{itemize}
+    \item variables can only move toward the root level
+    \item levels can only go from fresh to generalized
+    \item once generalized, they are effectively ``pure''
+    \item[$\Rightarrow$] internal error if broken (assertion fails)
+  \end{itemize}
+
+\end{frame}
+
+\begin{frame}[fragile]{Subtle case: opt-out of safety}
+
+  After generalizing a type \lstinline{'w2 Syntax.typ}, we know we can use it in the outer level \lstinline{'w1 level}.
+
+  However from the point of view of the type system, \lstinline{'w2} and \lstinline{'w1} are incompatible.
+
+We can implement an unsafe primitive for this case:
+\begin{lstlisting}
+val escape_typ :
+  ('w1, 'w2, Syntax.ns_value) Context.binder ->
+  'w2 Syntax.typ -> 'w1 Syntax.typ
+\end{lstlisting}
+
+This is a subtle code where types could escape their scope in a normal type-checker. It is caught by our encoding: we have to explicitly opt-out of safety. Now we know where dangerous things happen.
+
+\end{frame}
 
 \begin{frame}{That's all, thanks!}
 
-  Thanks for your attention.
+  ありがとうございます。
 
 \end{frame}
 
