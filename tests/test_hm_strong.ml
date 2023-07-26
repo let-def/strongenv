@@ -53,7 +53,7 @@ module rec Syntax : sig
     | Generalized of 'w ty_var list
 
   and 'w ty_var = {
-    mutable id: int;
+    id: int;
     mutable level: 'w level;
     mutable repr: 'w typ;
   }
