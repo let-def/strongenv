@@ -47,9 +47,10 @@ end = struct
     | Term , Type -> Gt
 end
 
-and Context : NEW_CONTEXT with type 'a namespace = 'a Namespace.t =
+and Context : CONTEXT with type 'a namespace = 'a Namespace.t =
   Make_context(Namespace)
 
+(* Not used anywhere... Maybe I can remove that. *)
 let () =
   let rec transport_typ
     : type w v. (w, v) Context.transport -> w Syntax.typ -> v Syntax.typ =
@@ -78,7 +79,7 @@ let () =
         let Binder (tp', b') = Context.Transport.binder b tp in
         Te_LAM (b', transport_term tp' body)
   in
-  let transport tp (type a) (ns : a Context.namespace)
+  let value tp (type a) (ns : a Context.namespace)
       (v : (_, a) v_strong) : (_, a) v_strong =
     let source = Context.Transport.source tp in
     let target = Context.Transport.target tp in
@@ -90,7 +91,7 @@ let () =
       Namespace.Type.pack target
         (transport_typ tp (Namespace.Type.unpack source v))
   in
-  Context.configure { transport }
+  Context.Transport.configure { value }
 
 let id_equal id1 id2 =
   match Context.Ident.compare id1 id2 with

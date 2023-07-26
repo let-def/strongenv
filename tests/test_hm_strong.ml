@@ -104,7 +104,7 @@ end = struct
     | Value , Level -> Gt
 end
 
-and Context : Flat.NEW_CONTEXT with type 'a namespace = 'a Namespace.t =
+and Context : Flat.CONTEXT with type 'a namespace = 'a Namespace.t =
   Flat.Make_context(Namespace)
 
 let rec repr typ = match typ with
@@ -422,7 +422,7 @@ module Typed = struct
         | Syntax.Ty_var var as typ ->
           begin match var.level.level_repr with
             | Syntax.Fresh f ->
-              (* variable is bound in a lower level, it is safe to upcast *)
+              (* ariable is bound in a lower level, it is safe to upcast *)
               cast f.world w2 typ
             | Syntax.Generalized _ ->
               begin match Hashtbl.find vars var.id with

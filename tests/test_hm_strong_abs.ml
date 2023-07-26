@@ -1,5 +1,18 @@
 open Strongenv
 
+(* WIP Expérimentation laissée en jachère.
+   Idea: Reflect type-system at type-level.
+
+   A type of the object language well-scoped in 'w is given type ('w, 'typ) typ.
+   ['typ] is a singleton type reflecting the type of the object.
+
+   Terms of the object langage are given type ('w, 'typ) term when they have
+   type ('w, 'typ) typ.
+
+   Rules of the type system are then made "visible" in the semantic AST,
+   and the typechecker as to explicitly instantiate them.
+*)
+
 type var = string
 
 module Source = struct
@@ -25,7 +38,7 @@ module SemAst : sig
     | Level : ns_level namespace
     | Value : ns_value namespace
 
-  module Context : Flat.NEW_CONTEXT with type 'a namespace = 'a namespace
+  module Context : Flat.CONTEXT with type 'a namespace = 'a namespace
 
   type ('w, 'ns) ident = ('w, 'ns) Context.ident
   type ('w1, 'w2, 'ns) binder = ('w1, 'w2, 'ns) Context.binder
@@ -186,7 +199,7 @@ end = struct
       | Value , Level -> Gt
   end
 
-  and Context : Flat.NEW_CONTEXT with type 'a namespace = 'a Namespace.t =
+  and Context : Flat.CONTEXT with type 'a namespace = 'a Namespace.t =
     Flat.Make_context(Namespace)
 
   include Syntax
