@@ -19,9 +19,19 @@ end
 module Typed = struct
   type typ =
     | TArrow of typ * typ
-    | TVar of tvar
+    | TVar of ty_var
 
-  and tvar = { id: int; mutable repr: typ; mutable level: int }
+  and ty_var = { id: int; mutable repr: typ; mutable level: level }
+
+  and level = { mutable level_repr : level_repr; }
+
+  and level_repr =
+    | Fresh of {
+        gensym: int ref;
+        depth: int;
+        mutable variables : ty_var list;
+      }
+    | Generalized of ty_var list
 
   type tlam = {
     typ: typ;
@@ -31,9 +41,15 @@ module Typed = struct
     | Var of string
     | Lam of string * tlam
     | App of tlam * tlam
-    | Let of string * tvar list * tlam * tlam
+    | Let of string * ty_var list * tlam * tlam
 
-  let poly = max_int
+  let is_fresh level = match level.level_repr with
+    | Fresh _ -> true
+    | Generalized _ -> false
+
+  let is_generalized level = match level.level_repr with
+    | Fresh _ -> false
+    | Generalized _ -> true
 
   let rec repr typ = match typ with
     | TArrow _ -> typ
@@ -44,7 +60,12 @@ module Typed = struct
         t.repr <- typ;
         match typ with
         | TVar t' ->
-          assert (t'.level <= t.level && t.level < poly);
+          begin match t.level.level_repr, t'.level.level_repr with
+            | Fresh t1, Fresh t2 ->
+              assert (t2.depth <= t1.depth)
+            | Generalized _, Generalized _ -> ()
+            | _ -> assert false
+          end;
           t.level <- t'.level
         | TArrow _ -> ()
       );
@@ -59,63 +80,67 @@ module Typed = struct
       | (TVar v, (TArrow _ as t')) | ((TArrow _ as t'), TVar v) ->
         v.repr <- t'
       | (TVar v1 as t1), (TVar v2 as t2) ->
-        if v1.level < v2.level then (
-          assert (v2.level < poly);
-          v2.repr <- t1;
-          v2.level <- v1.level
-        ) else (
-          assert (v1.level < poly);
-          v1.repr <- t2;
-          v1.level <- v2.level
-        )
-
-  type level = {
-    gensym: int ref;
-    level: int;
-    mutable variables: tvar list;
-    parent: level;
-  }
+        begin match v1.level.level_repr, v2.level.level_repr with
+          | Generalized _, _ | _, Generalized _ -> assert false
+          | Fresh l1, Fresh l2 ->
+            if l1.depth < l2.depth then (
+              v2.repr <- t1;
+              v2.level <- v1.level
+            ) else (
+              v1.repr <- t2;
+              v1.level <- v2.level
+            )
+        end
 
   let mk typ lam = { typ; lam }
 
   let first_level () =
-    let rec self =
-      { gensym = ref 0; level = 0; variables = []; parent = self }
-    in
-    self
+    {level_repr = Fresh { gensym = ref 0; depth = 0; variables = [] }}
 
   let new_var level =
-    let id = !(level.gensym) in
-    incr level.gensym;
-    let rec tvar = { id; repr; level = level.level } and repr = TVar tvar in
-    level.variables <- tvar :: level.variables;
-    repr
+    match level.level_repr with
+    | Generalized _ -> assert false
+    | Fresh l ->
+      let id = !(l.gensym) in
+      incr l.gensym;
+      let rec tvar = { id; repr; level } and repr = TVar tvar in
+      l.variables <- tvar :: l.variables;
+      repr
 
   let begin_level parent =
-    let gensym = parent.gensym in
-    let level = parent.level + 1 in
-    let variables = [] in
-    { gensym; level; variables; parent }
+    match parent.level_repr with
+    | Generalized _ -> assert false
+    | Fresh {gensym; depth; _} ->
+      {level_repr = Fresh { gensym; depth = depth + 1; variables = [] }}
 
-  let end_level { level; variables; parent; gensym = _ } =
-    List.fold_left (fun gen var ->
-        match repr var.repr with
-        | TVar var' when var' == var ->
-          if var'.level < level then (
-            parent.variables <- var' :: parent.variables;
-            gen
-          ) else (
-            var'.level <- poly;
-            (var' :: gen)
-          )
-        | TArrow _ | TVar _ -> gen
-      ) [] variables
+  let end_level level =
+    match level.level_repr with
+    | Generalized _ -> assert false
+    | Fresh l ->
+      let generalized =
+        List.fold_left (fun gen var ->
+            match repr var.repr with
+            | TVar var' when var' == var ->
+              if var.level == level then
+                (var :: gen)
+              else
+                begin match var.level.level_repr with
+                  | Generalized _ -> assert false
+                  | Fresh l' ->
+                    l'.variables <- var :: l'.variables;
+                    gen
+                end
+            | TArrow _ | TVar _ -> gen
+          ) [] l.variables
+      in
+      level.level_repr <- Generalized generalized;
+      generalized
 
   let instance level typ =
     let vars = Hashtbl.create 7 in
     let rec aux typ = match repr typ with
       | TArrow (t1, t2) -> TArrow (aux t1, aux t2)
-      | TVar var when var.level = poly ->
+      | TVar var when is_generalized var.level ->
         begin match Hashtbl.find vars var.id with
         | var -> var
         | exception Not_found ->
