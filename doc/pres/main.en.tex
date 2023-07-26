@@ -63,9 +63,9 @@
 
 \section{Type-level tricks}
 
-\lstset{language=caml, basicstyle=\ttfamily, basewidth=0.5em, morekeywords={module,sig,struct,val}}
+\lstset{language=caml, basicstyle=\ttfamily, basewidth=0.55em, morekeywords={include,module,sig,struct,val}}
 
-\begin{frame}[fragile]{\#1/4: Singleton types for witnessing properties}
+\begin{frame}[fragile]{1/4: Singleton types for witnessing properties}
 
 \begin{lstlisting}
 module M : sig
@@ -124,7 +124,7 @@ let equal (type a b) (A a : a t) (B b : b t)
   \end{itemize}
 \end{frame}
 
-\begin{frame}[fragile]{\#2/4: (Discrete) sub-typing witnesses (broken)}
+\begin{frame}[fragile]{2/4: (Discrete) sub-typing witnesses (broken)}
   Ideally:
 \begin{lstlisting}
 module type SUB = sig
@@ -140,7 +140,7 @@ type ('s, 't) sub = (module SUB with type t = 't
   Not working because only an abstract type can be turned into a first-class parameter.
 \end{frame}
 
-\begin{frame}[fragile]{\#2/4: (Discrete) sub-typing witnesses (fixed)}
+\begin{frame}[fragile]{2/4: (Discrete) sub-typing witnesses (fixed)}
 Work-around:
 \begin{lstlisting}
 module type SUB = sig
@@ -229,7 +229,7 @@ let is_prefix (type a b) (A a) (B b)
   {\em ``Namely, Painless: A unifying approach to safe programming with first-order syntax with binders''}.
 \end{frame}
 
-\begin{frame}[fragile]{\#3/4: Total-ordering for heterogeneous maps}
+\begin{frame}[fragile]{3/4: Total-ordering for heterogeneous maps}
 \begin{lstlisting}
 type ('a, 'b) order =
   | Lt
@@ -245,7 +245,7 @@ end
 Generalization of \lstinline{Map/Map.OrderedType} to heterogeneous situations.
 \end{frame}
 
-\begin{frame}[fragile]{\#4/4: Higher-kinded ``world'' polymorphism}
+\begin{frame}[fragile]{4/4: Higher-kinded ``world'' polymorphism}
 
 Like {\em Lightweight higher-kinded polymorphism} by Yallop and White, but restricted to {\em worlds}.
 \begin{lstlisting}
@@ -269,9 +269,9 @@ Work-around: an isomorphism $\texttt{'w t} \Leftrightarrow \texttt{('w, p) v\_st
 
 \begin{frame}{Summary}
   \begin{itemize}
-    \item With {\em sub-typing} we can reflect inclusion of environments.
-    \item With {\em heterogeneous maps}, we can represent context with multiple kind
-          of binders
+    \item With {\em sub-typing} and {\em singletons} we can reflect inclusion of environments.
+    \item With {\em heterogeneous maps}, we can represent context with different binders.
+
     \item With {\em world polymorphism}, we turn this into an efficient and
           generic toolkit enforcing ``world respecting'' usage.
   \end{itemize}
@@ -281,7 +281,7 @@ Work-around: an isomorphism $\texttt{'w t} \Leftrightarrow \texttt{('w, p) v\_st
 
 \begin{frame}{Example: System-F AST}
   Full code available in file {\tt tests/test\_sysf.ml}
-  \footnote{\url{https://gitea.lakaban.net/def/strongenv/src/branch/master/tests/test_sysf.ml}}.
+  \footnote{\href{https://gitea.lakaban.net/def/strongenv/src/branch/master/tests/test_sysf.ml}{gitea.lakaban.net/def/strongenv/src/branch/master/tests/test\_sysf.ml}}.
 
 \end{frame}
 
@@ -296,7 +296,7 @@ type 'w typ =
                 -> 'w1 typ
 \end{lstlisting}
 
-An \lstinline{'w typ} is a System-F type that is well-scoped in ``world'' \lstinline{'w}.
+An \lstinline{'w typ} is a System-F type that is well-scoped in world \lstinline{'w}.
 ~\\
 \pause
 \textbf{Concepts}:
@@ -340,8 +340,10 @@ type 'w term =
 \begin{lstlisting}[xleftmargin=-0.2in]
 ... and Namespace : sig
 
-  module Type : World.INDEXED with type 'w t = 'w Syntax.typ
-  module Term : World.INDEXED with type 'w t = 'w Syntax.term
+  module Type :
+    World.INDEXED with type 'w t = 'w Syntax.typ
+  module Term :
+    World.INDEXED with type 'w t = 'w Syntax.term
 
 type 'a t =
   | Type : Type.p t
@@ -352,32 +354,28 @@ include Witness.ORDERED with type 'a t := 'a t
 end
 \end{lstlisting}
 
-\begin{itemize}
-  \item Construct the isomorphisms for world polymorphism and ordering for heterogeneous map.
-\end{itemize}
+Construct the isomorphisms for world polymorphism and the ordering for heterogeneous map.
 \end{frame}
 
 \begin{frame}[fragile]{Boilerplate (2/2): Namespace implementation}
 
-\begin{lstlisting}[xleftmargin=-0.2in]
-struct
-  module Type =
-    World.Indexed0(struct type 'a t = 'a Syntax.typ end)
-  module Term =
-    World.Indexed0(struct type 'a t = 'a Syntax.term end)
+\begin{lstlisting}
+module Type =
+  World.Indexed0(struct type 'a t = 'a Syntax.typ end)
+module Term =
+  World.Indexed0(struct type 'a t = 'a Syntax.term end)
 
-  type 'a t =
-    | Type : Type.p t
-    | Term : Term.p t
+type 'a t =
+  | Type : Type.p t
+  | Term : Term.p t
 
-  let compare (type a b) (a : a t) (b : b t)
-    : (a, b) Witness.order =
-    match a, b with
-    | Type , Type -> Eq
-    | Term , Term -> Eq
-    | Type , Term -> Lt
-    | Term , Type -> Gt
-end
+let compare (type a b) (a : a t) (b : b t)
+  : (a, b) Witness.order =
+  match a, b with
+  | Type , Type -> Eq
+  | Term , Term -> Eq
+  | Type , Term -> Lt
+  | Term , Type -> Gt
 \end{lstlisting}
 
 \end{frame}
@@ -387,8 +385,9 @@ end
 \begin{lstlisting}
 ...
 
-and Context : CONTEXT with type 'a namespace = 'a Namespace.t =
-  Make_context(Namespace)
+and Context
+  : CONTEXT with type 'a namespace = 'a Namespace.t
+  = Make_context(Namespace)
 \end{lstlisting}
 
 Finally, we can instantiate the library over our syntax and namespaces. \\~\\
@@ -414,7 +413,7 @@ Note: everything is mutually recursive. The trees use idents and binders provide
     \item {\tt tests/test\_hm\_base.ml}
           \footnote{~\href{https://gitea.lakaban.net/def/strongenv/src/branch/master/tests/test_hm_base.ml}{gitea.lakaban.net/def/strongenv/src/branch/master/tests/test\_hm\_base.ml}} \\
           Reference implementation using plain AST. \\
-          Nice to see the encoding of levels first, without enforcing scoping.
+          To see the encoding of levels first.
 
      \pause
     \item {\tt tests/test\_hm\_strong.ml}
@@ -493,7 +492,7 @@ and 'w ty_var = {
     \item[ns\_level] to represent a set of type variables
   \end{itemize}
   \pause ~\\
-  During inference, the set of type variables is being discovered and can grow: not suitable for the static structure of the ``well-scoped AST''. \\
+  During inference, the set of type variables is being discovered and can grow: not suitable for the static structure of the ``well-scoped~AST''. \\
   However, level placement is fixed: store levels in the AST.
 
 \pause ~\\
@@ -534,7 +533,9 @@ type 'w term =
 
   After generalizing a type \lstinline{'w2 Syntax.typ}, we know we can use it in the outer level \lstinline{'w1 level}.
 
-  However from the point of view of the type system, \lstinline{'w2} and \lstinline{'w1} are incompatible.
+  However from the point of view of OCaml, \lstinline{'w2} and \lstinline{'w1} are incompatible.
+
+  \pause
 
 We can implement an unsafe primitive for this case:
 \begin{lstlisting}
@@ -543,7 +544,9 @@ val escape_typ :
   'w2 Syntax.typ -> 'w1 Syntax.typ
 \end{lstlisting}
 
-This is a subtle code where types could escape their scope in a normal type-checker. It is caught by our encoding: we have to explicitly opt-out of safety. Now we know where dangerous things happen.
+This is a subtle part of a type-checker where types could escape their scope. It is caught by our encoding: we have to explicitly opt-out of safety.
+
+Now we know where dangerous things happen!
 
 \end{frame}
 
