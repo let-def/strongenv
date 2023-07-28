@@ -146,7 +146,7 @@ module Env : sig
   val generalize_level : ('w1, 'w2, Syntax.ns_level) Context.binder ->
     unit * ('w2 Syntax.typ -> 'w1 Syntax.typ)
 
-  val commute_typ : ('w1, 'w2, Syntax.ns_value) Context.binder ->
+  val escape_typ : ('w1, 'w2, Syntax.ns_value) Context.binder ->
     ('w2 Syntax.typ -> 'w1 Syntax.typ)
 
   module type FRESH = sig
@@ -299,11 +299,12 @@ end = struct
     let level = pack_level world level in
     Fresh (binder, { context; index = Index.coerce link t.index; level })
 
-  let commute_typ (type w1 w2)
+  let escape_typ (type w1 w2)
       (Context.Binder (link, _, _) : (w1, w2, _) Context.binder) =
     let Witness.Refl = World.unsafe_eq (World.source link) in
     let Witness.Refl = World.unsafe_eq (World.target link) in
-    (fun (ty : w2 Syntax.typ) -> (ty : w1 Syntax.typ))
+    (fun (ty : w2 Syntax.typ) ->
+       (ty : w1 Syntax.typ))
 
   let generalize_level (type w1 w2)
       (Context.Binder (link, _, level) as binder : (w1, w2, _) Context.binder) =
@@ -332,7 +333,7 @@ end = struct
           ) [] f.variables
       in
       level.level_repr <- Syntax.Generalized generalized;
-      ((), commute_typ binder)
+      ((), escape_typ binder)
 end
 
 module Typed = struct
@@ -455,7 +456,7 @@ module Typed = struct
           (Namespace.Value.pack (Env.world env) tvar)
       in
       let lam = reconstruct env lam in
-      let typ = Env.commute_typ binder lam.typ in
+      let typ = Env.escape_typ binder lam.typ in
       mk (Syntax.Ty_arr (tvar, typ)) (Syntax.Te_lam (binder, lam))
     | Source.App (lm1, lm2) ->
       let lm1 = reconstruct env lm1 in
@@ -474,7 +475,7 @@ module Typed = struct
           (Namespace.Value.pack (Env.world env) (commute bound.typ))
       in
       let body = reconstruct env' lm2 in
-      mk (Env.commute_typ binder body.typ)
+      mk (Env.escape_typ binder body.typ)
         (Syntax.Te_let {level; bound; binder; body})
 
   let print_tvar ppf tvar =
