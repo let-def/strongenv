@@ -19,8 +19,6 @@ module rec Syntax : sig
     | Te_app of 'w term * 'w term
     | Te_LAM : ('w1, 'w2, ns_typ) binder * 'w2 term -> 'w1 term
     | Te_APP of 'w term * 'w typ
-
-  type 'w mod_
 end = Syntax
 
 and Namespace : sig
