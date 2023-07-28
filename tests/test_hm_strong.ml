@@ -1,4 +1,10 @@
 (** Extension
+
+    Add the necessary things to encode GADTs:
+    - equality constraints
+    - existentials
+    - scopes
+
     On scoping representation:
     - add type constructors, detect scope escape
     - add level to every type expression, to implement other Remy's
@@ -22,11 +28,23 @@ type var = string
 
 module Source = struct
 
+  type typ =
+    | Unit
+    | Var of var
+    | Arr of typ * typ
+    | Eq of typ * typ
+
   type lam =
     | Var of var
     | Lam of var * lam
     | App of lam * lam
     | Let of var * lam * lam
+    | New of var * lam
+    | Use of {
+        witness: lam;
+        witness_types: typ * typ;
+        body: lam
+      }
 
   module Infix = struct
     let (!) x = Var x
@@ -42,25 +60,39 @@ module rec Syntax : sig
 
   type ns_level = Namespace.Level.p
   type ns_value = Namespace.Value.p
+  type ns_rigid = Namespace.Rigid.p
 
   type 'w level = { mutable level_repr : 'w level_repr; }
   and 'w level_repr =
     | Fresh of {
         gensym: int ref;
         world: 'w World.t;
-        mutable variables : 'w ty_var list;
+        mutable variables : 'w typ list;
       }
-    | Generalized of 'w ty_var list
+    | Generalized of 'w typ list
 
-  and 'w ty_var = {
+  and 'w scope = Scope : {
+    scope: 'w0 World.t;
+    scope_sub : ('w0, 'w) Witness.sub;
+  } -> 'w scope
+
+  and 'w typ = {
     id: int;
+    mutable scope: 'w scope;
     mutable level: 'w level;
-    mutable repr: 'w typ;
+    (* invariant: scope <= level *)
+    mutable repr: 'w typ_desc;
+    (* forall succ \in repr,
+         succ.scope >= scope && succ.level <= level *)
   }
 
-  and 'w typ =
-    | Ty_var of 'w ty_var
+  and 'w typ_desc =
+    | Ty_unit
+    | Ty_var
+    | Ty_link of 'w typ
     | Ty_arr of 'w typ * 'w typ
+    | Ty_eq of 'w typ * 'w typ
+    | Ty_rigid of ('w, ns_rigid) ident
 
   type 'w term_desc =
     | Te_var of (('w, ns_value) ident, var) result
@@ -72,6 +104,15 @@ module rec Syntax : sig
         binder: ('w, 'wb, ns_value) binder;
         body: 'wb term;
       } -> 'w term_desc
+    | Te_new : {
+        var: ('w, 'wl, ns_rigid) binder;
+        body: 'wl term;
+      } -> 'w term_desc
+    | Te_use of {
+        witness: 'w term;
+        witness_types: 'w typ * 'w typ;
+        body: 'w term;
+      }
 
   and 'w term = {
     typ: 'w typ;
@@ -83,50 +124,48 @@ end = Syntax
 and Namespace : sig
   module Level : World.INDEXED with type 'w t = 'w Syntax.level
   module Value : World.INDEXED with type 'w t = 'w Syntax.typ
+  module Rigid : World.INDEXED with type 'w t = ('w Syntax.typ * 'w Syntax.scope) option
 
   type 'a t =
     | Level : Level.p t
     | Value : Value.p t
+    | Rigid : Rigid.p t
 
   include Witness.ORDERED with type 'a t := 'a t
 end = struct
-  module Level = World.Indexed0(struct type 'a t = 'a Syntax.level end)
-  module Value = World.Indexed0(struct type 'a t = 'a Syntax.typ end)
+  module Level = World.Indexed0(struct type 'w t = 'w Syntax.level end)
+  module Value = World.Indexed0(struct type 'w t = 'w Syntax.typ end)
+  module Rigid = World.Indexed0(struct type 'w t = ('w Syntax.typ * 'w Syntax.scope) option end)
+
   type 'a t =
     | Level : Level.p t
     | Value : Value.p t
+    | Rigid : Rigid.p t
 
   let compare (type a b) (a : a t) (b : b t) : (a, b) Witness.order =
     match a, b with
     | Level , Level -> Eq
     | Value , Value -> Eq
-    | Level , Value -> Lt
-    | Value , Level -> Gt
+    | Rigid , Rigid -> Eq
+    | Level , (Value | Rigid) -> Lt
+    | (Rigid | Value), Level -> Gt
+    | Rigid , Value -> Gt
+    | Value , Rigid -> Lt
 end
 
 and Context : Flat.CONTEXT with type 'a namespace = 'a Namespace.t =
   Flat.Make_context(Namespace)
 
-let rec repr typ = match typ with
-  | Syntax.Ty_arr _ -> typ
-  | Syntax.Ty_var t when t.repr == typ -> typ
-  | Syntax.Ty_var t ->
-    let typ = repr t.repr in
-    if typ != t.repr then (
-      t.repr <- typ;
-      match typ with
-      | Syntax.Ty_var t' ->
-        begin match t'.level.level_repr, t.level.level_repr with
-          | r1, r2 when r1 == r2 -> ()
-          | Syntax.Fresh f1, Syntax.Fresh f2 ->
-            assert (World.card f1.world < World.card f2.world)
-          | _ -> failwith "Broken invariant: unification variable \
-                           crossing generalized levels"
-        end;
-        t.level <- t'.level
-      | Syntax.Ty_arr _ -> ()
-    );
-    typ
+let rec repr (typ : _ Syntax.typ) = match typ.repr with
+  | Syntax.Ty_link typ' -> repr typ'
+  (*| Syntax.Ty_rigid r ->
+    let Unpack (_w', _sub, v) = World.unpack w (Context.get ctx r) in
+    begin match v with
+      | None -> typ
+      | Some (typ', scope) ->
+        instance (inner_scope typ.scope scope) typ.level typ'
+    end*)
+  | _ -> typ
 
 module Env : sig
   type 'w level = ('w, Syntax.ns_level) World.v
@@ -140,7 +179,9 @@ module Env : sig
   val bind' : 'w t -> 'a Namespace.t -> var -> ('w, 'a) World.v_strong -> ('w, 'a) fresh
 
   val world : 'w t -> 'w World.t
-  val new_var : 'w t -> 'w Syntax.typ
+  val new_var : 'w Syntax.scope -> 'w Syntax.level -> 'w Syntax.typ
+
+  val get_level : 'w t -> 'w Syntax.level
 
   val enter_level : 'w t -> ('w, Syntax.ns_level) fresh
   val generalize_level : ('w1, 'w2, Syntax.ns_level) Context.binder ->
@@ -155,6 +196,8 @@ module Env : sig
     val env : w t
   end
   module Make() : FRESH
+
+  val initial_scope : 'w t -> 'w Syntax.scope
 end = struct
   type 'w level = ('w, Syntax.ns_level) World.v
 
@@ -271,16 +314,23 @@ end = struct
     let index = Index.add ident var (Index.coerce link t.index) in
     Fresh (binder, {level = t.level; index; context})
 
-  let new_var t = match get_level t with
-    | { Syntax.level_repr = Syntax.Generalized _ } ->
+  let new_var scope level = match level.Syntax.level_repr with
+    | Syntax.Generalized _ ->
       failwith "Generating fresh variable in an already generalized level"
-    | { Syntax.level_repr = Syntax.Fresh f } as level ->
+    | Syntax.Fresh f ->
+      let Syntax.Scope s = scope in
+      assert (World.card s.scope <= World.card f.world);
       let id = !(f.gensym) in
       incr f.gensym;
-      let rec tvar = { Syntax. id; repr; level }
-      and repr = Syntax.Ty_var tvar in
-      f.variables <- tvar :: f.variables;
-      repr
+      let ty = {
+        Syntax.
+        id;
+        scope;
+        level;
+        repr = Ty_var;
+      } in
+      f.variables <- ty :: f.variables;
+      ty
 
   let new_level world = function
     | { Syntax.level_repr = Syntax.Generalized _ } ->
@@ -316,54 +366,154 @@ end = struct
     | { Syntax.level_repr = Syntax.Fresh f } as level ->
       let generalized =
         List.fold_left (fun gen var ->
-            match repr var.Syntax.repr with
-            | Syntax.Ty_var var' when var' == var ->
-              if var'.level == level then
-                (var' :: gen)
+            let ty = repr var in
+            match ty.repr with
+            | Ty_var ->
+              if ty.level == level then
+                (ty :: gen)
               else (
-                begin match var'.level.level_repr with
+                begin match ty.level.level_repr with
                   | Syntax.Generalized _ ->
                     failwith "Broken invariant: unification variable \
                               in generalized level"
-                  | Syntax.Fresh f' -> f'.variables <- var' :: f'.variables
+                  | Syntax.Fresh f' -> f'.variables <- ty :: f'.variables
                 end;
                 gen
               )
-            | Syntax.Ty_arr _ | Syntax.Ty_var _ -> gen
+            | _ ->
+              gen
           ) [] f.variables
       in
       level.level_repr <- Syntax.Generalized generalized;
       ((), escape_typ binder)
+
+  let initial_scope env =
+    Syntax.Scope {scope = World.empty;
+                  scope_sub = World.smallest_world (world env)}
 end
 
 module Typed = struct
-  let rec unify t1 t2 =
-    if t1 != t2 then match repr t1, repr t2 with
-      | t1, t2 when t1 == t2 -> ()
-      | Syntax.Ty_arr (t11, t12), Syntax.Ty_arr (t21, t22) ->
-        unify t11 t21;
-        unify t12 t22;
-      | (Syntax.Ty_var v, (Syntax.Ty_arr _ as t'))
-      | ((Syntax.Ty_arr _ as t'), Syntax.Ty_var v) ->
-        begin match v.level.level_repr with
-          | Syntax.Generalized _ ->
-            failwith "Cannot unify generalized variable"
-          | Syntax.Fresh _ -> ()
-        end;
-        v.repr <- t'
-      | (Syntax.Ty_var v1 as t1), (Syntax.Ty_var v2 as t2) ->
-        begin match v1.level.level_repr, v2.level.level_repr with
-          | (Syntax.Generalized _, _) | (_, Syntax.Generalized _) ->
-            failwith "Cannot unify generalized variable"
-          | Syntax.Fresh f1, Syntax.Fresh f2 ->
-            if (World.card f1.world < World.card f2.world) then (
-              v2.repr <- t1;
-              v2.level <- v1.level
-            ) else (
-              v1.repr <- t2;
-              v1.level <- v2.level
-            )
-        end
+  let inner_scope (Syntax.Scope t1 as s1) (Syntax.Scope t2 as s2) =
+    if World.card t1.scope < World.card t2.scope then
+      s1
+    else
+      s2
+
+  let outer_level l1 l2 =
+    match l1.Syntax.level_repr, l2.Syntax.level_repr with
+    | Fresh f1, Fresh f2 ->
+      if (World.card f1.world < World.card f2.world) then
+        l1
+      else
+        l2
+    | _ -> assert false
+
+  let coerce_typ (type w1 w2)
+      (w1 : w1 World.t)
+      (w2 : w2 World.t)
+      (_sub : (w1, w2) Witness.sub)
+      (typ : w1 Syntax.typ)
+      : w2 Syntax.typ
+      =
+      let Witness.Refl = World.unsafe_eq w1 in
+      let Witness.Refl = World.unsafe_eq w2 in
+      typ
+
+  let coerce_scope
+      (type w1 w2)
+      (sub : (w1, w2) Witness.sub)
+      (Scope {scope; scope_sub} : w1 Syntax.scope)
+      : w2 Syntax.scope
+    =
+    Scope {scope; scope_sub = Witness.trans_sub scope_sub sub}
+
+  let instance (type w)
+      (scope : w Syntax.scope)
+      (level : w Syntax.level)
+      (typ : w Syntax.typ)
+    : w Syntax.typ =
+    let module Table = Hashtbl.Make(struct
+        type t = w Syntax.typ
+        let hash t = t.Syntax.id
+        let equal t1 t2 = t1 == t2
+      end)
+    in
+    let table = Table.create 7 in
+    let rec aux typ : w Syntax.typ =
+      let typ = repr typ in
+      match Table.find_opt table typ with
+      | Some typ' -> typ'
+      | None ->
+        let var = Env.new_var (inner_scope typ.scope scope) level in
+        Table.add table typ var;
+        var.repr <- (match typ.repr with
+          | Ty_link _ -> assert false
+          | Ty_unit -> Ty_unit
+          | Ty_var -> Ty_var
+          | Ty_arr (t1, t2) ->
+            Ty_arr (aux t1, aux t2)
+          | Ty_eq (t1, t2) ->
+            Ty_eq (aux t1, aux t2)
+          | Ty_rigid r ->
+            Ty_rigid r
+          );
+        var
+    in
+    aux typ
+
+  let rec expand ctx w (typ : _ Syntax.typ) =
+    let typ = repr typ in
+    match typ.repr with
+    | Ty_rigid r ->
+      let Unpack (w', sub, v) = World.unpack w (Context.get ctx r) in
+      let eqn = Namespace.Rigid.unpack w' v in
+      begin match eqn with
+        | None -> typ
+        | Some (typ', scope) ->
+          expand ctx w
+            (instance (inner_scope typ.scope (coerce_scope sub scope)) typ.level
+               (coerce_typ w' w sub typ'))
+      end
+    | _ -> typ
+
+  let rec unify ctx w mode t1 t2 =
+    let t1 = expand ctx w t1 and t2 = expand ctx w t2 in
+    if t1 != t2 then (
+      let r1 = t1.repr and r2 = t2.repr in
+      let scope = inner_scope t1.scope t2.scope in
+      let level = outer_level t1.level t2.level in
+      t2.scope <- scope;
+      t2.level <- level;
+      t1.repr <- Ty_link t2;
+      match r1, r2 with
+      | Ty_var, _ -> ()
+      | _, Ty_var ->
+        t1.repr <- r1;
+        t1.scope <- scope;
+        t1.level <- level;
+        t2.repr <- Ty_link t1
+      | Ty_rigid r1, Ty_rigid r2 when r1 = r2 ->
+        ()
+      | Ty_rigid _r, _ ->
+        ()
+        (*begin match mode with
+
+
+          end*)
+        (* Next step:
+           - reify, turn unification variables into rigid variables *)
+      | _, Ty_rigid _r ->
+        ()
+      | Ty_unit, Ty_unit -> ()
+      | Ty_arr (t11, t12), Ty_arr (t21, t22)
+      | Ty_eq (t11, t12), Ty_eq (t21, t22) ->
+        unify ctx w mode t11 t21;
+        unify ctx w mode t12 t22;
+      | Ty_link _, _ | _, Ty_link _ ->
+        assert false
+      | _ ->
+        failwith "Unification failure"
+    )
 
   let mk typ desc = { Syntax. typ; desc }
 
@@ -378,47 +528,23 @@ module Typed = struct
         } in
       { Syntax. level_repr }
 
-  let instance (type w2)
-      (env : w2 Env.t) (typ : (w2, Syntax.ns_value) World.v)
-    : w2 Syntax.typ =
-      let vars = Hashtbl.create 7 in
-      let w2 = Env.world env in
-      let World.Unpack (w0, _w0w1, v) = World.unpack w2 typ in
-      let typ = Namespace.Value.unpack w0 v in
-      let rec aux : type w1. w1 Syntax.typ -> w2 Syntax.typ =
-        fun typ -> match repr typ with
-        | Syntax.Ty_arr (t1, t2) -> Syntax.Ty_arr (aux t1, aux t2)
-        | Syntax.Ty_var var as typ ->
-          begin match var.level.level_repr with
-            | Syntax.Fresh f ->
-              (* ariable is bound in a lower level, it is safe to upcast *)
-              cast f.world w2 typ
-            | Syntax.Generalized _ ->
-              begin match Hashtbl.find vars var.id with
-                | var -> var
-                | exception Not_found ->
-                  let var' = Env.new_var env in
-                  Hashtbl.replace vars var.id var';
-                  var'
-              end
-          end
-      in
-      aux typ
-
   let rec reconstruct : type w. w Env.t -> Source.lam -> w Syntax.term =
     fun env -> function
     | Source.Var name ->
       let ident, typ = match Env.find env Namespace.Value name with
         | Some ident ->
-          let typ = Env.get env ident in
-          (Ok ident, instance env typ)
+          let Unpack (w', sub, typ) = World.unpack (Env.world env) (Env.get env ident) in
+          let typ = Namespace.Value.unpack w' typ in
+          let typ = coerce_typ w' (Env.world env) sub typ in
+          (Ok ident, instance (Env.initial_scope env) (Env.get_level env) typ)
         | None ->
-          prerr_endline ("Unbound variable " ^ name);
-          (Error name, Env.new_var env)
+          failwith "Unbound identifier"
+          (*prerr_endline ("Unbound variable " ^ name);
+            (Error name, Env.new_var env)*)
       in
       mk typ (Syntax.Te_var ident)
     | Source.Lam (var, lam) ->
-      let tvar = Env.new_var env in
+      let tvar = Env.new_var (Env.initial_scope env) (Env.get_level env) in
       let Env.Fresh (binder, env) =
         Env.bind' env Namespace.Value var
           (Namespace.Value.pack (Env.world env) tvar)
