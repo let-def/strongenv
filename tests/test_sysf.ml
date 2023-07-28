@@ -48,49 +48,6 @@ end
 and Context : CONTEXT with type 'a namespace = 'a Namespace.t =
   Make_context(Namespace)
 
-(* Not used anywhere... Maybe I can remove that. *)
-let () =
-  let rec transport_typ
-    : type w v. (w, v) Context.transport -> w Syntax.typ -> v Syntax.typ =
-    fun tp -> function
-      | Ty_var id ->
-        Ty_var (Context.Transport.ident tp id)
-      | Ty_arr (t1, t2) ->
-        Ty_arr (transport_typ tp t1, transport_typ tp t2)
-      | Ty_forall (b, body) ->
-        let Binder (tp', b') = Context.Transport.binder b tp in
-        Ty_forall (b', transport_typ tp' body)
-  in
-  let rec transport_term
-    : type w v. (w, v) Context.transport -> w Syntax.term -> v Syntax.term =
-    fun tp -> function
-      | Te_var id ->
-        Te_var (Context.Transport.ident tp id)
-      | Te_app (te1, te2) ->
-        Te_app (transport_term tp te1, transport_term tp te2)
-      | Te_lam (b, body) ->
-        let Binder (tp', b') = Context.Transport.binder b tp in
-        Te_lam (b', transport_term tp' body)
-      | Te_APP (te, ty) ->
-        Te_APP (transport_term tp te, transport_typ tp ty)
-      | Te_LAM (b, body) ->
-        let Binder (tp', b') = Context.Transport.binder b tp in
-        Te_LAM (b', transport_term tp' body)
-  in
-  let value tp (type a) (ns : a Context.namespace)
-      (v : (_, a) v_strong) : (_, a) v_strong =
-    let source = Context.Transport.source tp in
-    let target = Context.Transport.target tp in
-    match ns with
-    | Namespace.Term ->
-      Namespace.Term.pack target
-        (transport_term tp (Namespace.Term.unpack source v))
-    | Namespace.Type ->
-      Namespace.Type.pack target
-        (transport_typ tp (Namespace.Type.unpack source v))
-  in
-  Context.Transport.configure { value }
-
 let id_equal id1 id2 =
   match Context.Ident.compare id1 id2 with
   | Eq -> true

@@ -35,41 +35,6 @@ module type CONTEXT = sig
   val bind' : 'w env -> 'a namespace -> ('w, 'a) v_strong -> ('w, 'a) fresh
   val update : 'w env -> ('w, 'a) ident -> ('w, 'a) v -> ('w, 'a) fresh
   val update' : 'w env -> ('w, 'a) ident -> ('w, 'a) v_strong -> ('w, 'a) fresh
-
-  (* WIP Not satisfying:
-     - complex recursion, need to be "configured" first,
-     - not sure about safety, binder: transporting into world 'w2 might be fishy.
-     - is it really useful? I forgot why I needed it.
-  *)
-  type ('w, 'v) transport
-  module Transport : sig
-    val source : ('w, 'v) transport -> 'w world
-    val target : ('w, 'v) transport -> 'v world
-
-    type ('v1, 'w2, 'ns) t_binder =
-        Binder : ('w2, 'v2) transport * ('v1, 'v2, 'ns) binder
-          -> ('v1, 'w2, 'ns) t_binder
-
-    val ident : ('w, 'v) transport -> ('w, 'a) ident -> ('v, 'a) ident
-
-    val value : ('w, 'v) transport -> 'a namespace ->
-      ('w, 'a) v_strong -> ('v, 'a) v_strong
-
-    val binder : ('w1, 'w2, 'ns) binder -> ('w1, 'v1) transport ->
-      ('v1, 'w2, 'ns) t_binder
-
-    val sub : ('w1, 'w2) Witness.sub ->
-      'w1 world -> 'w2 world -> ('w1, 'w2) transport
-    val compose :
-      ('w1, 'w2) transport -> ('w2, 'w3) transport -> ('w1, 'w3) transport
-
-    type configuration = {
-      value : 'w 'v 'a.  ('w, 'v) transport ->
-        'a namespace -> ('w, 'a) v_strong -> ('v, 'a) v_strong
-    }
-    val configure : configuration -> unit
-  end
-
 end
 
 module Make_context (Namespace : Witness.ORDERED) :
