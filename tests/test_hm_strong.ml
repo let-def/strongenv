@@ -378,38 +378,6 @@ module Typed = struct
         } in
       { Syntax. level_repr }
 
-  let end_level = function
-    | { Syntax.level_repr = Syntax.Generalized _ } ->
-      failwith "Level already generalized"
-    | { Syntax.level_repr = Syntax.Fresh f } as level ->
-      let generalized =
-        List.fold_left (fun gen var ->
-            match repr var.Syntax.repr with
-            | Syntax.Ty_var var' when var' == var ->
-              if var'.level == level then
-                (var' :: gen)
-              else (
-                begin match var'.level.level_repr with
-                  | Syntax.Generalized _ ->
-                    failwith "Broken invariant: unification variable \
-                              in generalized level"
-                  | Syntax.Fresh f' ->
-                    f'.variables <- var' :: f'.variables;
-                end;
-                gen
-              )
-            | Syntax.Ty_arr _ | Syntax.Ty_var _ -> gen
-          ) [] f.variables
-      in
-      level.level_repr <- Syntax.Generalized generalized;
-      generalized
-
-  let cast (type w1 w2) (w1: w1 World.t) (w2: w2 World.t) (t: w1 Syntax.typ)
-    : w2 Syntax.typ =
-    let Witness.Refl = World.unsafe_eq w1 in
-    let Witness.Refl = World.unsafe_eq w2 in
-    t
-
   let instance (type w2)
       (env : w2 Env.t) (typ : (w2, Syntax.ns_value) World.v)
     : w2 Syntax.typ =
