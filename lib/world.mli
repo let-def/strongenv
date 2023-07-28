@@ -8,6 +8,8 @@ type ('w, 'a) v_strong
 
 val empty : o world (* A world with no bindings *)
 
+val smallest_world : 'w world -> (o, 'w) sub
+
 type ('a, 'b) link
 type 'a extension = Extension : ('a, 'b) link -> 'a extension
 val extend : 'a world -> 'a extension

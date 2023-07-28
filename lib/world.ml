@@ -8,6 +8,9 @@ type ('w, 'a) v_strong = 'a
 
 let empty : o world = W 0
 
+let smallest_world (type w) (W _ : w world) : (o, w) sub =
+  refl_sub
+
 type ('a, 'b) link = Link : int -> (o, o) link [@@ocaml.unboxed]
 type 'a extension = Extension : ('a, 'b) link -> 'a extension
 
